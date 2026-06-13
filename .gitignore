@@ -5,3 +5,4 @@ apps/backend/storage/images/*
 !apps/backend/storage/images/.gitkeep
 apps/backend/flux-service/__pycache__/
 apps/backend/flux-service/.venv/
+apps/backend/.env
