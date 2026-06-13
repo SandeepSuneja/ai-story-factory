@@ -11,40 +11,59 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppService = void 0;
 const common_1 = require("@nestjs/common");
+const character_agent_1 = require("./agents/character.agent");
+const idea_agent_1 = require("./agents/idea.agent");
 const prompt_agent_1 = require("./agents/prompt.agent");
-const content_graph_1 = require("./graphs/content.graph");
+const script_agent_1 = require("./agents/script.agent");
+const story_agent_1 = require("./agents/story.agent");
 let AppService = class AppService {
+    ideaAgent;
+    storyAgent;
+    scriptAgent;
+    characterAgent;
     promptAgent;
-    constructor(promptAgent) {
+    constructor(ideaAgent, storyAgent, scriptAgent, characterAgent, promptAgent) {
+        this.ideaAgent = ideaAgent;
+        this.storyAgent = storyAgent;
+        this.scriptAgent = scriptAgent;
+        this.characterAgent = characterAgent;
         this.promptAgent = promptAgent;
     }
     getHello() {
         return 'Hello World!';
     }
-    async generate(topic) {
-        const result = await content_graph_1.contentGraph.invoke({ topic });
-        const script = await this.generatePrompts(result.script);
+    async generateIdea(topic) {
+        return { idea: await this.ideaAgent.execute(topic) };
+    }
+    async generateStory(idea) {
+        return { story: await this.storyAgent.execute(idea) };
+    }
+    async generateScript(story) {
+        return { script: await this.scriptAgent.execute(story) };
+    }
+    async generateCharacterProfile(story, script) {
         return {
-            idea: result.idea,
-            story: result.story,
-            script,
+            characterAppearance: await this.characterAgent.executeProfile(story, script),
         };
     }
-    async generatePrompts(scenes) {
-        const updated = [];
-        for (const scene of scenes) {
-            const prompt = await this.promptAgent.execute(scene);
-            updated.push({
+    async generatePrompt(scene, characterAppearance) {
+        const videoPrompt = await this.promptAgent.execute(scene, characterAppearance);
+        return {
+            scene: {
                 ...scene,
-                videoPrompt: prompt,
-            });
-        }
-        return updated;
+                characterAppearance,
+                videoPrompt,
+            },
+        };
     }
 };
 exports.AppService = AppService;
 exports.AppService = AppService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prompt_agent_1.PromptAgent])
+    __metadata("design:paramtypes", [idea_agent_1.IdeaAgent,
+        story_agent_1.StoryAgent,
+        script_agent_1.ScriptAgent,
+        character_agent_1.CharacterAgent,
+        prompt_agent_1.PromptAgent])
 ], AppService);
 //# sourceMappingURL=app.service.js.map

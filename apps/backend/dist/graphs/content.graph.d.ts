@@ -9,7 +9,7 @@ export declare const contentGraph: import("@langchain/langgraph").CompiledStateG
     idea?: string | undefined;
     story?: string | undefined;
     script?: SceneScript[] | undefined;
-}, "__start__" | "generateIdea" | "writeStory" | "buildScript", {
+}, "generateIdea" | "__start__" | "writeStory" | "buildScript", {
     topic: {
         (annotation: import("@langchain/langgraph").SingleReducer<string, string>): import("@langchain/langgraph").BaseChannel<string, string | import("@langchain/langgraph").OverwriteValue<string>, unknown>;
         (): import("@langchain/langgraph").LastValue<string>;

@@ -1,3 +1,4 @@
+import { Injectable } from "@nestjs/common";
 import type { SceneScript } from "../content-state";
 import { OpenAIService } from "../services/openai.service";
 
@@ -9,6 +10,7 @@ function parseJsonFromModel(text: string): SceneScript[] {
   return JSON.parse(jsonText) as SceneScript[];
 }
 
+@Injectable()
 export class ScriptAgent {
   constructor(private readonly ai: OpenAIService) {}
 

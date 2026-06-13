@@ -17,21 +17,27 @@ let PromptAgent = class PromptAgent {
     constructor(ai) {
         this.ai = ai;
     }
-    async execute(scene) {
+    async execute(scene, characterAppearance) {
         const prompt = `
-Create a cinematic AI video prompt.
+Create a cinematic AI video prompt for this scene.
 
 Requirements:
 - Vertical 9:16
 - Realistic
 - Ultra detailed
-- Consistent character
 - Dramatic lighting
+- Use the exact character appearance in every scene
 
-Scene:
+Character appearance:
+${characterAppearance}
+
+Scene narration:
+${scene.narration}
+
+Scene visual:
 ${scene.visualDescription}
 
-Return only prompt.
+Return only the video prompt.
 `;
         return this.ai.generate(prompt);
     }

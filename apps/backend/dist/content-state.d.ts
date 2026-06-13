@@ -11,6 +11,7 @@ export interface SceneScript {
     duration: number;
     imagePrompt?: string;
     videoPrompt?: string;
+    characterAppearance?: string;
     imagePath?: string;
     videoPath?: string;
     audioPath?: string;

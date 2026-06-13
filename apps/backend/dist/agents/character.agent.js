@@ -9,29 +9,43 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.StoryAgent = void 0;
+exports.CharacterAgent = void 0;
 const common_1 = require("@nestjs/common");
 const openai_service_1 = require("../services/openai.service");
-let StoryAgent = class StoryAgent {
+let CharacterAgent = class CharacterAgent {
     ai;
     constructor(ai) {
         this.ai = ai;
     }
-    async execute(idea) {
-        const prompt = `Write a highly engaging story.
+    async executeProfile(story, script) {
+        const scenesSummary = script
+            .map((scene) => `Scene ${scene.sceneNumber}: ${scene.visualDescription} (${scene.narration})`)
+            .join("\n");
+        const prompt = `
+Read the story and script scenes, then define one main character's uniform visual appearance.
+
 Requirements:
-- 400 words
-- strong hook
-- emotional tension
-- twist ending
-Idea:${idea}
+- One consistent character only
+- Age, gender, ethnicity, face, hair, outfit, accessories
+- Distinctive traits that stay the same in every scene
+- Must fit the story and all script scenes
+- Suitable for AI image and video generation
+- 80-120 words
+
+Return only the character appearance description.
+
+Story:
+${story}
+
+Script scenes:
+${scenesSummary}
 `;
         return this.ai.generate(prompt);
     }
 };
-exports.StoryAgent = StoryAgent;
-exports.StoryAgent = StoryAgent = __decorate([
+exports.CharacterAgent = CharacterAgent;
+exports.CharacterAgent = CharacterAgent = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [openai_service_1.OpenAIService])
-], StoryAgent);
-//# sourceMappingURL=story.agent.js.map
+], CharacterAgent);
+//# sourceMappingURL=character.agent.js.map

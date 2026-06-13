@@ -1,14 +1,46 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.GenerateContentResponseDto = exports.GenerateContentRequestDto = void 0;
-class GenerateContentRequestDto {
+exports.GeneratePromptResponseDto = exports.GeneratePromptRequestDto = exports.GenerateCharacterProfileResponseDto = exports.GenerateCharacterProfileRequestDto = exports.GenerateScriptResponseDto = exports.GenerateScriptRequestDto = exports.GenerateStoryResponseDto = exports.GenerateStoryRequestDto = exports.GenerateIdeaResponseDto = exports.GenerateIdeaRequestDto = void 0;
+class GenerateIdeaRequestDto {
     topic;
 }
-exports.GenerateContentRequestDto = GenerateContentRequestDto;
-class GenerateContentResponseDto {
+exports.GenerateIdeaRequestDto = GenerateIdeaRequestDto;
+class GenerateIdeaResponseDto {
     idea;
+}
+exports.GenerateIdeaResponseDto = GenerateIdeaResponseDto;
+class GenerateStoryRequestDto {
+    idea;
+}
+exports.GenerateStoryRequestDto = GenerateStoryRequestDto;
+class GenerateStoryResponseDto {
+    story;
+}
+exports.GenerateStoryResponseDto = GenerateStoryResponseDto;
+class GenerateScriptRequestDto {
+    story;
+}
+exports.GenerateScriptRequestDto = GenerateScriptRequestDto;
+class GenerateScriptResponseDto {
+    script;
+}
+exports.GenerateScriptResponseDto = GenerateScriptResponseDto;
+class GenerateCharacterProfileRequestDto {
     story;
     script;
 }
-exports.GenerateContentResponseDto = GenerateContentResponseDto;
+exports.GenerateCharacterProfileRequestDto = GenerateCharacterProfileRequestDto;
+class GenerateCharacterProfileResponseDto {
+    characterAppearance;
+}
+exports.GenerateCharacterProfileResponseDto = GenerateCharacterProfileResponseDto;
+class GeneratePromptRequestDto {
+    scene;
+    characterAppearance;
+}
+exports.GeneratePromptRequestDto = GeneratePromptRequestDto;
+class GeneratePromptResponseDto {
+    scene;
+}
+exports.GeneratePromptResponseDto = GeneratePromptResponseDto;
 //# sourceMappingURL=content.model.js.map

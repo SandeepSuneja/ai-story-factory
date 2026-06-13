@@ -24,8 +24,20 @@ let AppController = class AppController {
     getHello() {
         return this.appService.getHello();
     }
-    generate(body) {
-        return this.appService.generate(body.topic);
+    generateIdea(body) {
+        return this.appService.generateIdea(body.topic);
+    }
+    generateStory(body) {
+        return this.appService.generateStory(body.idea);
+    }
+    generateScript(body) {
+        return this.appService.generateScript(body.story);
+    }
+    generateCharacterProfile(body) {
+        return this.appService.generateCharacterProfile(body.story, body.script);
+    }
+    generatePrompt(body) {
+        return this.appService.generatePrompt(body.scene, body.characterAppearance);
     }
 };
 exports.AppController = AppController;
@@ -36,12 +48,40 @@ __decorate([
     __metadata("design:returntype", String)
 ], AppController.prototype, "getHello", null);
 __decorate([
-    (0, common_1.Post)('generate'),
+    (0, common_1.Post)('generate/idea'),
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [content_model_1.GenerateContentRequestDto]),
+    __metadata("design:paramtypes", [content_model_1.GenerateIdeaRequestDto]),
     __metadata("design:returntype", Promise)
-], AppController.prototype, "generate", null);
+], AppController.prototype, "generateIdea", null);
+__decorate([
+    (0, common_1.Post)('generate/story'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [content_model_1.GenerateStoryRequestDto]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generateStory", null);
+__decorate([
+    (0, common_1.Post)('generate/script'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [content_model_1.GenerateScriptRequestDto]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generateScript", null);
+__decorate([
+    (0, common_1.Post)('generate/character/profile'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [content_model_1.GenerateCharacterProfileRequestDto]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generateCharacterProfile", null);
+__decorate([
+    (0, common_1.Post)('generate/prompt'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [content_model_1.GeneratePromptRequestDto]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generatePrompt", null);
 exports.AppController = AppController = __decorate([
     (0, common_1.Controller)(),
     __metadata("design:paramtypes", [app_service_1.AppService])

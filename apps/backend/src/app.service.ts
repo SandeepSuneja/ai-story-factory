@@ -1,40 +1,65 @@
 import { Injectable } from '@nestjs/common';
+import { CharacterAgent } from './agents/character.agent';
+import { IdeaAgent } from './agents/idea.agent';
 import { PromptAgent } from './agents/prompt.agent';
+import { ScriptAgent } from './agents/script.agent';
+import { StoryAgent } from './agents/story.agent';
 import type { SceneScript } from './content-state';
-import { contentGraph } from './graphs/content.graph';
-import { GenerateContentResponseDto } from './models/content.model';
+import {
+  GenerateCharacterProfileResponseDto,
+  GenerateIdeaResponseDto,
+  GeneratePromptResponseDto,
+  GenerateScriptResponseDto,
+  GenerateStoryResponseDto,
+} from './models/content.model';
 
 @Injectable()
 export class AppService {
-  constructor(private readonly promptAgent: PromptAgent) {}
+  constructor(
+    private readonly ideaAgent: IdeaAgent,
+    private readonly storyAgent: StoryAgent,
+    private readonly scriptAgent: ScriptAgent,
+    private readonly characterAgent: CharacterAgent,
+    private readonly promptAgent: PromptAgent,
+  ) {}
 
   getHello(): string {
     return 'Hello World!';
   }
 
-  async generate(topic: string): Promise<GenerateContentResponseDto> {
-    const result = await contentGraph.invoke({ topic });
-    const script = await this.generatePrompts(result.script!);
+  async generateIdea(topic: string): Promise<GenerateIdeaResponseDto> {
+    return { idea: await this.ideaAgent.execute(topic) };
+  }
 
+  async generateStory(idea: string): Promise<GenerateStoryResponseDto> {
+    return { story: await this.storyAgent.execute(idea) };
+  }
+
+  async generateScript(story: string): Promise<GenerateScriptResponseDto> {
+    return { script: await this.scriptAgent.execute(story) };
+  }
+
+  async generateCharacterProfile(
+    story: string,
+    script: SceneScript[],
+  ): Promise<GenerateCharacterProfileResponseDto> {
     return {
-      idea: result.idea!,
-      story: result.story!,
-      script,
+      characterAppearance: await this.characterAgent.executeProfile(story, script),
     };
   }
 
-  async generatePrompts(scenes: SceneScript[]): Promise<SceneScript[]> {
-    const updated: SceneScript[] = [];
+  async generatePrompt(
+    scene: SceneScript,
+    characterAppearance: string,
+  ): Promise<GeneratePromptResponseDto> {
+    const videoPrompt = await this.promptAgent.execute(scene, characterAppearance);
 
-    for (const scene of scenes) {
-      const prompt = await this.promptAgent.execute(scene);
-
-      updated.push({
+    return {
+      scene: {
         ...scene,
-        videoPrompt: prompt,
-      });
-    }
-
-    return updated;
+        characterAppearance,
+        videoPrompt,
+      },
+    };
   }
 }

@@ -1,19 +1,28 @@
 import type {
-  GenerateContentRequest,
-  GenerateContentResponse,
+  GenerateCharacterProfileRequest,
+  GenerateCharacterProfileResponse,
+  GenerateIdeaRequest,
+  GenerateIdeaResponse,
+  GeneratePromptRequest,
+  GeneratePromptResponse,
+  GenerateScriptRequest,
+  GenerateScriptResponse,
+  GenerateStoryRequest,
+  GenerateStoryResponse,
 } from '../types/content';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api';
 
-export async function generateContent(
-  request: GenerateContentRequest
-): Promise<GenerateContentResponse> {
-  const response = await fetch(`${API_BASE}/generate`, {
+async function postJson<TResponse>(
+  path: string,
+  body: unknown,
+): Promise<TResponse> {
+  const response = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(request),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -21,5 +30,35 @@ export async function generateContent(
     throw new Error(message || `Request failed with status ${response.status}`);
   }
 
-  return response.json() as Promise<GenerateContentResponse>;
+  return response.json() as Promise<TResponse>;
+}
+
+export function generateIdea(
+  request: GenerateIdeaRequest,
+): Promise<GenerateIdeaResponse> {
+  return postJson('/generate/idea', request);
+}
+
+export function generateStory(
+  request: GenerateStoryRequest,
+): Promise<GenerateStoryResponse> {
+  return postJson('/generate/story', request);
+}
+
+export function generateScript(
+  request: GenerateScriptRequest,
+): Promise<GenerateScriptResponse> {
+  return postJson('/generate/script', request);
+}
+
+export function generateCharacterProfile(
+  request: GenerateCharacterProfileRequest,
+): Promise<GenerateCharacterProfileResponse> {
+  return postJson('/generate/character/profile', request);
+}
+
+export function generatePrompt(
+  request: GeneratePromptRequest,
+): Promise<GeneratePromptResponse> {
+  return postJson('/generate/prompt', request);
 }
