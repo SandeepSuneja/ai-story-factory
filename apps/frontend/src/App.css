@@ -354,9 +354,15 @@
 
 .stepper {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
   margin-bottom: 1.5rem;
+}
+
+@media (min-width: 900px) {
+  .stepper {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
 }
 
 .character-profile {
@@ -572,6 +578,22 @@
 
 .scene-field.highlight p {
   color: #ddd6fe;
+}
+
+.scene-image-wrap {
+  margin-bottom: 0.85rem;
+  border-radius: 0.9rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.scene-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 9 / 16;
+  object-fit: cover;
 }
 
 @keyframes spin {

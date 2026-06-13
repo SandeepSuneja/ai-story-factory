@@ -10,11 +10,13 @@ exports.AppModule = void 0;
 const common_1 = require("@nestjs/common");
 const character_agent_1 = require("./agents/character.agent");
 const idea_agent_1 = require("./agents/idea.agent");
+const image_agent_1 = require("./agents/image.agent");
 const prompt_agent_1 = require("./agents/prompt.agent");
 const script_agent_1 = require("./agents/script.agent");
 const story_agent_1 = require("./agents/story.agent");
 const app_controller_1 = require("./app.controller");
 const app_service_1 = require("./app.service");
+const flux_service_1 = require("./services/flux.service");
 const openai_service_1 = require("./services/openai.service");
 let AppModule = class AppModule {
 };
@@ -26,11 +28,13 @@ exports.AppModule = AppModule = __decorate([
         providers: [
             app_service_1.AppService,
             openai_service_1.OpenAIService,
+            flux_service_1.FluxService,
             idea_agent_1.IdeaAgent,
             story_agent_1.StoryAgent,
             script_agent_1.ScriptAgent,
-            prompt_agent_1.PromptAgent,
             character_agent_1.CharacterAgent,
+            prompt_agent_1.PromptAgent,
+            image_agent_1.ImageAgent,
         ],
     })
 ], AppModule);

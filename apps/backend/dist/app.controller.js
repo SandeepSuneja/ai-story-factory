@@ -39,6 +39,9 @@ let AppController = class AppController {
     generatePrompt(body) {
         return this.appService.generatePrompt(body.scene, body.characterAppearance);
     }
+    generateImage(body) {
+        return this.appService.generateImage(body.scene);
+    }
 };
 exports.AppController = AppController;
 __decorate([
@@ -82,6 +85,13 @@ __decorate([
     __metadata("design:paramtypes", [content_model_1.GeneratePromptRequestDto]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generatePrompt", null);
+__decorate([
+    (0, common_1.Post)('generate/image'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [content_model_1.GenerateImageRequestDto]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generateImage", null);
 exports.AppController = AppController = __decorate([
     (0, common_1.Controller)(),
     __metadata("design:paramtypes", [app_service_1.AppService])

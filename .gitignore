@@ -1,3 +1,7 @@
 apps/backend/node_modules
 apps/frontend/node_modules
 apps/frontend/dist
+apps/backend/storage/images/*
+!apps/backend/storage/images/.gitkeep
+apps/backend/flux-service/__pycache__/
+apps/backend/flux-service/.venv/

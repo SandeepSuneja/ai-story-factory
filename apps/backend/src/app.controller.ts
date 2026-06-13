@@ -5,6 +5,8 @@ import {
   GenerateCharacterProfileResponseDto,
   GenerateIdeaRequestDto,
   GenerateIdeaResponseDto,
+  GenerateImageRequestDto,
+  GenerateImageResponseDto,
   GeneratePromptRequestDto,
   GeneratePromptResponseDto,
   GenerateScriptRequestDto,
@@ -55,5 +57,12 @@ export class AppController {
     @Body() body: GeneratePromptRequestDto,
   ): Promise<GeneratePromptResponseDto> {
     return this.appService.generatePrompt(body.scene, body.characterAppearance);
+  }
+
+  @Post('generate/image')
+  generateImage(
+    @Body() body: GenerateImageRequestDto,
+  ): Promise<GenerateImageResponseDto> {
+    return this.appService.generateImage(body.scene);
   }
 }

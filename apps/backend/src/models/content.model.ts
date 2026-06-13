@@ -41,3 +41,11 @@ export class GeneratePromptRequestDto {
 export class GeneratePromptResponseDto {
   scene: SceneScript;
 }
+
+export class GenerateImageRequestDto {
+  scene: SceneScript;
+}
+
+export class GenerateImageResponseDto {
+  scene: SceneScript;
+}

@@ -53,6 +53,14 @@ export interface GeneratePromptResponse {
   scene: SceneScript;
 }
 
+export interface GenerateImageRequest {
+  scene: SceneScript;
+}
+
+export interface GenerateImageResponse {
+  scene: SceneScript;
+}
+
 export type PipelineStep =
   | 'topic'
   | 'idea'
@@ -60,4 +68,5 @@ export type PipelineStep =
   | 'script'
   | 'character'
   | 'prompts'
+  | 'images'
   | 'complete';

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.GeneratePromptResponseDto = exports.GeneratePromptRequestDto = exports.GenerateCharacterProfileResponseDto = exports.GenerateCharacterProfileRequestDto = exports.GenerateScriptResponseDto = exports.GenerateScriptRequestDto = exports.GenerateStoryResponseDto = exports.GenerateStoryRequestDto = exports.GenerateIdeaResponseDto = exports.GenerateIdeaRequestDto = void 0;
+exports.GenerateImageResponseDto = exports.GenerateImageRequestDto = exports.GeneratePromptResponseDto = exports.GeneratePromptRequestDto = exports.GenerateCharacterProfileResponseDto = exports.GenerateCharacterProfileRequestDto = exports.GenerateScriptResponseDto = exports.GenerateScriptRequestDto = exports.GenerateStoryResponseDto = exports.GenerateStoryRequestDto = exports.GenerateIdeaResponseDto = exports.GenerateIdeaRequestDto = void 0;
 class GenerateIdeaRequestDto {
     topic;
 }
@@ -43,4 +43,12 @@ class GeneratePromptResponseDto {
     scene;
 }
 exports.GeneratePromptResponseDto = GeneratePromptResponseDto;
+class GenerateImageRequestDto {
+    scene;
+}
+exports.GenerateImageRequestDto = GenerateImageRequestDto;
+class GenerateImageResponseDto {
+    scene;
+}
+exports.GenerateImageResponseDto = GenerateImageResponseDto;
 //# sourceMappingURL=content.model.js.map

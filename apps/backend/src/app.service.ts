@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { CharacterAgent } from './agents/character.agent';
 import { IdeaAgent } from './agents/idea.agent';
+import { ImageAgent } from './agents/image.agent';
 import { PromptAgent } from './agents/prompt.agent';
 import { ScriptAgent } from './agents/script.agent';
 import { StoryAgent } from './agents/story.agent';
@@ -8,6 +9,7 @@ import type { SceneScript } from './content-state';
 import {
   GenerateCharacterProfileResponseDto,
   GenerateIdeaResponseDto,
+  GenerateImageResponseDto,
   GeneratePromptResponseDto,
   GenerateScriptResponseDto,
   GenerateStoryResponseDto,
@@ -21,6 +23,7 @@ export class AppService {
     private readonly scriptAgent: ScriptAgent,
     private readonly characterAgent: CharacterAgent,
     private readonly promptAgent: PromptAgent,
+    private readonly imageAgent: ImageAgent,
   ) {}
 
   getHello(): string {
@@ -60,6 +63,12 @@ export class AppService {
         characterAppearance,
         videoPrompt,
       },
+    };
+  }
+
+  async generateImage(scene: SceneScript): Promise<GenerateImageResponseDto> {
+    return {
+      scene: await this.imageAgent.execute(scene),
     };
   }
 }

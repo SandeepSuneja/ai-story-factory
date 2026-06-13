@@ -13,6 +13,7 @@ exports.AppService = void 0;
 const common_1 = require("@nestjs/common");
 const character_agent_1 = require("./agents/character.agent");
 const idea_agent_1 = require("./agents/idea.agent");
+const image_agent_1 = require("./agents/image.agent");
 const prompt_agent_1 = require("./agents/prompt.agent");
 const script_agent_1 = require("./agents/script.agent");
 const story_agent_1 = require("./agents/story.agent");
@@ -22,12 +23,14 @@ let AppService = class AppService {
     scriptAgent;
     characterAgent;
     promptAgent;
-    constructor(ideaAgent, storyAgent, scriptAgent, characterAgent, promptAgent) {
+    imageAgent;
+    constructor(ideaAgent, storyAgent, scriptAgent, characterAgent, promptAgent, imageAgent) {
         this.ideaAgent = ideaAgent;
         this.storyAgent = storyAgent;
         this.scriptAgent = scriptAgent;
         this.characterAgent = characterAgent;
         this.promptAgent = promptAgent;
+        this.imageAgent = imageAgent;
     }
     getHello() {
         return 'Hello World!';
@@ -56,6 +59,11 @@ let AppService = class AppService {
             },
         };
     }
+    async generateImage(scene) {
+        return {
+            scene: await this.imageAgent.execute(scene),
+        };
+    }
 };
 exports.AppService = AppService;
 exports.AppService = AppService = __decorate([
@@ -64,6 +72,7 @@ exports.AppService = AppService = __decorate([
         story_agent_1.StoryAgent,
         script_agent_1.ScriptAgent,
         character_agent_1.CharacterAgent,
-        prompt_agent_1.PromptAgent])
+        prompt_agent_1.PromptAgent,
+        image_agent_1.ImageAgent])
 ], AppService);
 //# sourceMappingURL=app.service.js.map

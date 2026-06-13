@@ -3,6 +3,8 @@ import type {
   GenerateCharacterProfileResponse,
   GenerateIdeaRequest,
   GenerateIdeaResponse,
+  GenerateImageRequest,
+  GenerateImageResponse,
   GeneratePromptRequest,
   GeneratePromptResponse,
   GenerateScriptRequest,
@@ -61,4 +63,10 @@ export function generatePrompt(
   request: GeneratePromptRequest,
 ): Promise<GeneratePromptResponse> {
   return postJson('/generate/prompt', request);
+}
+
+export function generateImage(
+  request: GenerateImageRequest,
+): Promise<GenerateImageResponse> {
+  return postJson('/generate/image', request);
 }

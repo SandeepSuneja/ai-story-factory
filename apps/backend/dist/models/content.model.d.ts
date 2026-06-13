@@ -31,3 +31,9 @@ export declare class GeneratePromptRequestDto {
 export declare class GeneratePromptResponseDto {
     scene: SceneScript;
 }
+export declare class GenerateImageRequestDto {
+    scene: SceneScript;
+}
+export declare class GenerateImageResponseDto {
+    scene: SceneScript;
+}

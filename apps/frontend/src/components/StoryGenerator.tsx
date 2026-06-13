@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
   generateCharacterProfile,
   generateIdea,
+  generateImage,
   generatePrompt,
   generateScript,
   generateStory,
@@ -20,6 +21,7 @@ const STEPS: { id: PipelineStep; label: string }[] = [
   { id: 'script', label: 'Script' },
   { id: 'character', label: 'Character' },
   { id: 'prompts', label: 'Video prompts' },
+  { id: 'images', label: 'Images' },
 ];
 
 const STEP_DELAY_MS = 1200;
@@ -38,16 +40,18 @@ export function StoryGenerator() {
   const [story, setStory] = useState<string | null>(null);
   const [scriptScenes, setScriptScenes] = useState<SceneScript[]>([]);
   const [promptedScenes, setPromptedScenes] = useState<SceneScript[]>([]);
+  const [imageScenes, setImageScenes] = useState<SceneScript[]>([]);
   const [characterAppearance, setCharacterAppearance] = useState<string | null>(
     null,
   );
-  const [promptSceneIndex, setPromptSceneIndex] = useState(0);
+  const [sceneProgressIndex, setSceneProgressIndex] = useState(0);
   const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({
     1: false,
     2: false,
     3: false,
     4: false,
     5: false,
+    6: false,
   });
 
   const pipelineStarted = currentStep !== 'topic';
@@ -101,10 +105,11 @@ export function StoryGenerator() {
     setStory(null);
     setScriptScenes([]);
     setPromptedScenes([]);
+    setImageScenes([]);
     setCharacterAppearance(null);
-    setPromptSceneIndex(0);
+    setSceneProgressIndex(0);
     setTopic('');
-    setExpandedSteps({ 1: false, 2: false, 3: false, 4: false, 5: false });
+    setExpandedSteps({ 1: false, 2: false, 3: false, 4: false, 5: false, 6: false });
   }
 
   function startWithTopic(selectedTopic: string) {
@@ -120,11 +125,11 @@ export function StoryGenerator() {
   }
 
   function expandAllSteps() {
-    setExpandedSteps({ 1: true, 2: true, 3: true, 4: true, 5: true });
+    setExpandedSteps({ 1: true, 2: true, 3: true, 4: true, 5: true, 6: true });
   }
 
   function collapseAllSteps() {
-    setExpandedSteps({ 1: false, 2: false, 3: false, 4: false, 5: false });
+    setExpandedSteps({ 1: false, 2: false, 3: false, 4: false, 5: false, 6: false });
   }
 
   function revealStep(step: number) {
@@ -148,9 +153,10 @@ export function StoryGenerator() {
     setStory(null);
     setScriptScenes([]);
     setPromptedScenes([]);
+    setImageScenes([]);
     setCharacterAppearance(null);
-    setPromptSceneIndex(0);
-    setExpandedSteps({ 1: false, 2: false, 3: false, 4: false, 5: false });
+    setSceneProgressIndex(0);
+    setExpandedSteps({ 1: false, 2: false, 3: false, 4: false, 5: false, 6: false });
     setLoading(true);
 
     try {
@@ -196,13 +202,29 @@ export function StoryGenerator() {
       const scenesWithPrompts: SceneScript[] = [];
 
       for (const [index, scene] of scriptResponse.script.entries()) {
-        setPromptSceneIndex(index);
+        setSceneProgressIndex(index);
         const promptResponse = await generatePrompt({
           scene,
           characterAppearance: profileResponse.characterAppearance,
         });
         scenesWithPrompts.push(promptResponse.scene);
         setPromptedScenes([...scenesWithPrompts]);
+      }
+
+      setLoading(false);
+      await wait(STEP_DELAY_MS);
+
+      setLoading(true);
+      setCurrentStep('images');
+      revealStep(6);
+
+      const scenesWithImages: SceneScript[] = [];
+
+      for (const [index, scene] of scenesWithPrompts.entries()) {
+        setSceneProgressIndex(index);
+        const imageResponse = await generateImage({ scene });
+        scenesWithImages.push(imageResponse.scene);
+        setImageScenes([...scenesWithImages]);
       }
 
       setCurrentStep('complete');
@@ -221,14 +243,15 @@ export function StoryGenerator() {
     story ||
     scriptScenes.length > 0 ||
     characterAppearance ||
-    promptedScenes.length > 0;
+    promptedScenes.length > 0 ||
+    imageScenes.length > 0;
 
   return (
     <div className="app-shell">
       {loading ? (
         <LoadingOverlay
           currentStep={currentStep}
-          promptSceneIndex={promptSceneIndex}
+          sceneProgressIndex={sceneProgressIndex}
           totalScenes={scriptScenes.length}
           activeStepIndex={activeStepIndex}
         />
@@ -412,6 +435,26 @@ export function StoryGenerator() {
             )}
           </StepPanel>
         ) : null}
+
+        {imageScenes.length > 0 || currentStep === 'images' ? (
+          <StepPanel
+            step={6}
+            title="Generated images"
+            expanded={expandedSteps[6]}
+            onToggle={() => toggleStep(6)}
+            summary={
+              imageScenes.length > 0
+                ? `${imageScenes.length} image${imageScenes.length === 1 ? '' : 's'} saved locally`
+                : 'Generating images'
+            }
+          >
+            {imageScenes.length > 0 ? (
+              <SceneList scenes={imageScenes} showPrompts showImages />
+            ) : (
+              <p className="muted">Generating scene images with FLUX.1-dev...</p>
+            )}
+          </StepPanel>
+        ) : null}
       </div>
 
       {currentStep === 'complete' && !loading ? (
@@ -423,12 +466,12 @@ export function StoryGenerator() {
 
 function LoadingOverlay({
   currentStep,
-  promptSceneIndex,
+  sceneProgressIndex,
   totalScenes,
   activeStepIndex,
 }: {
   currentStep: PipelineStep;
-  promptSceneIndex: number;
+  sceneProgressIndex: number;
   totalScenes: number;
   activeStepIndex: number;
 }) {
@@ -438,7 +481,7 @@ function LoadingOverlay({
         <div className="loader" aria-hidden="true" />
         <p className="loading-overlay-title">Pipeline running</p>
         <p className="loading-overlay-message">
-          {getLoadingMessage(currentStep, promptSceneIndex, totalScenes)}
+          {getLoadingMessage(currentStep, sceneProgressIndex, totalScenes)}
         </p>
 
         <ul className="loading-overlay-steps">
@@ -465,7 +508,7 @@ function LoadingOverlay({
 
 function getLoadingMessage(
   step: PipelineStep,
-  promptSceneIndex: number,
+  sceneProgressIndex: number,
   totalScenes: number,
 ) {
   switch (step) {
@@ -478,7 +521,9 @@ function getLoadingMessage(
     case 'character':
       return 'Defining uniform character from story and script...';
     case 'prompts':
-      return `Creating video prompt for scene ${promptSceneIndex + 1} of ${totalScenes}...`;
+      return `Creating video prompt for scene ${sceneProgressIndex + 1} of ${totalScenes}...`;
+    case 'images':
+      return `Generating image for scene ${sceneProgressIndex + 1} of ${totalScenes} with FLUX.1-dev...`;
     default:
       return 'Working...';
   }
@@ -538,9 +583,11 @@ function StepPanel({
 function SceneList({
   scenes,
   showPrompts,
+  showImages = false,
 }: {
   scenes: SceneScript[];
   showPrompts: boolean;
+  showImages?: boolean;
 }) {
   return (
     <div className="scene-grid">
@@ -550,6 +597,15 @@ function SceneList({
             <h3>Scene {scene.sceneNumber}</h3>
             <span>{scene.duration}s</span>
           </div>
+          {showImages && scene.imagePath ? (
+            <div className="scene-image-wrap">
+              <img
+                src={scene.imagePath}
+                alt={`Generated image for scene ${scene.sceneNumber}`}
+                className="scene-image"
+              />
+            </div>
+          ) : null}
           <div className="scene-field">
             <strong>Narration</strong>
             <p>{scene.narration}</p>
