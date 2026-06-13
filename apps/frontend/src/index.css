@@ -1,0 +1,46 @@
+:root {
+  --text: #cbd5e1;
+  --text-h: #f8fafc;
+  --text-muted: #94a3b8;
+  --bg: #0b1020;
+  --panel: rgba(15, 23, 42, 0.88);
+  --card-bg: rgba(30, 41, 59, 0.55);
+  --input-bg: rgba(15, 23, 42, 0.9);
+  --border: rgba(148, 163, 184, 0.18);
+  --accent: #a78bfa;
+  --accent-bg: rgba(167, 139, 250, 0.12);
+  --accent-border: rgba(167, 139, 250, 0.35);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+
+  font-family: Inter, system-ui, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(124, 58, 237, 0.22), transparent 28%),
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.16), transparent 24%),
+    var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+button,
+input {
+  font: inherit;
+}

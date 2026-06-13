@@ -1,0 +1,267 @@
+.app-shell {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+}
+
+.hero {
+  margin-bottom: 2rem;
+}
+
+.eyebrow {
+  display: inline-flex;
+  margin: 0 0 0.75rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  margin: 0 0 0.75rem;
+  max-width: 14ch;
+  font-size: clamp(2.2rem, 5vw, 3.5rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+.subtitle {
+  max-width: 58ch;
+  color: var(--text-muted);
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  box-shadow: var(--shadow);
+}
+
+.generator-panel {
+  margin-bottom: 1.5rem;
+}
+
+.generator-form label {
+  display: block;
+  margin-bottom: 0.65rem;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.input-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+}
+
+.input-row input,
+.input-row button,
+.chip {
+  font: inherit;
+}
+
+.input-row input {
+  width: 100%;
+  padding: 0.95rem 1rem;
+  border-radius: 0.9rem;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text-h);
+}
+
+.input-row input:focus {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.input-row button {
+  min-width: 9rem;
+  padding: 0.95rem 1.25rem;
+  border: none;
+  border-radius: 0.9rem;
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.input-row button:hover:not(:disabled),
+.chip:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.input-row button:disabled,
+.chip:disabled,
+.input-row input:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.topic-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.chip {
+  padding: 0.55rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.error-banner {
+  margin: 1rem 0 0;
+  padding: 0.9rem 1rem;
+  border-radius: 0.9rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fecaca;
+}
+
+.status-panel {
+  display: grid;
+  justify-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.loader {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.results {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.panel-heading h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.result-panel p {
+  margin: 0;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.story-copy {
+  white-space: pre-wrap;
+}
+
+.scene-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.scene-card {
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+}
+
+.scene-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.scene-card-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-h);
+}
+
+.scene-card-header span {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.scene-field + .scene-field {
+  margin-top: 0.85rem;
+}
+
+.scene-field strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--text-h);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.scene-field p {
+  margin: 0;
+}
+
+.scene-field.highlight {
+  padding-top: 0.85rem;
+  border-top: 1px dashed var(--border);
+}
+
+.scene-field.highlight p {
+  color: #ddd6fe;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 720px) {
+  .input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .input-row button {
+    width: 100%;
+  }
+}
