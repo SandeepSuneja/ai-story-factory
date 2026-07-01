@@ -5,6 +5,12 @@ import type {
   GenerateIdeaResponse,
   GenerateImageRequest,
   GenerateImageResponse,
+  GenerateVideoRequest,
+  GenerateVideoResponse,
+  GenerateAudioRequest,
+  GenerateAudioResponse,
+  AssembleVideoRequest,
+  AssembleVideoResponse,
   GeneratePromptRequest,
   GeneratePromptResponse,
   GenerateScriptRequest,
@@ -69,4 +75,22 @@ export function generateImage(
   request: GenerateImageRequest,
 ): Promise<GenerateImageResponse> {
   return postJson('/generate/image', request);
+}
+
+export function generateVideo(
+  request: GenerateVideoRequest,
+): Promise<GenerateVideoResponse> {
+  return postJson('/generate/video', request);
+}
+
+export function generateAudio(
+  request: GenerateAudioRequest,
+): Promise<GenerateAudioResponse> {
+  return postJson('/generate/audio', request);
+}
+
+export function assembleVideo(
+  request: AssembleVideoRequest,
+): Promise<AssembleVideoResponse> {
+  return postJson('/generate/assembly', request);
 }

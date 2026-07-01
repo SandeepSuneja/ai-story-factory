@@ -1,10 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import type { SceneScript } from "../content-state";
-import { OpenAIService } from "../services/openai.service";
+import { QwenService } from "../services/qwen.service";
 
 @Injectable()
 export class CharacterAgent {
-  constructor(private readonly ai: OpenAIService) {}
+  constructor(private readonly ai: QwenService) {}
 
   async executeProfile(story: string, script: SceneScript[]) {
     const scenesSummary = script

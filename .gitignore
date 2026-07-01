@@ -1,8 +1,12 @@
+apps/backend/.env
 apps/backend/node_modules
 apps/frontend/node_modules
 apps/frontend/dist
-apps/backend/storage/images/*
-!apps/backend/storage/images/.gitkeep
+apps/backend/storage
 apps/backend/flux-service/__pycache__/
 apps/backend/flux-service/.venv/
-apps/backend/.env
+apps/backend/qwen-service/.venv/
+apps/backend/hunyuan-service/.venv/
+apps/backend/tts-service/.venv/
+apps/backend/assembly-service/.venv/
+apps/backend/dist

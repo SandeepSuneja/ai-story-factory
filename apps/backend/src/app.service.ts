@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { AssemblyAgent } from './agents/assembly.agent';
+import { AudioAgent } from './agents/audio.agent';
 import { CharacterAgent } from './agents/character.agent';
 import { IdeaAgent } from './agents/idea.agent';
 import { ImageAgent } from './agents/image.agent';
 import { PromptAgent } from './agents/prompt.agent';
 import { ScriptAgent } from './agents/script.agent';
+import { VideoAgent } from './agents/video.agent';
 import { StoryAgent } from './agents/story.agent';
 import type { SceneScript } from './content-state';
 import {
@@ -13,6 +16,9 @@ import {
   GeneratePromptResponseDto,
   GenerateScriptResponseDto,
   GenerateStoryResponseDto,
+  GenerateVideoResponseDto,
+  AssembleVideoResponseDto,
+  GenerateAudioResponseDto,
 } from './models/content.model';
 
 @Injectable()
@@ -24,6 +30,9 @@ export class AppService {
     private readonly characterAgent: CharacterAgent,
     private readonly promptAgent: PromptAgent,
     private readonly imageAgent: ImageAgent,
+    private readonly videoAgent: VideoAgent,
+    private readonly audioAgent: AudioAgent,
+    private readonly assemblyAgent: AssemblyAgent,
   ) {}
 
   getHello(): string {
@@ -69,6 +78,27 @@ export class AppService {
   async generateImage(scene: SceneScript): Promise<GenerateImageResponseDto> {
     return {
       scene: await this.imageAgent.execute(scene),
+    };
+  }
+
+  async generateVideo(scene: SceneScript): Promise<GenerateVideoResponseDto> {
+    return {
+      scene: await this.videoAgent.execute(scene),
+    };
+  }
+
+  async generateAudio(scene: SceneScript): Promise<GenerateAudioResponseDto> {
+    return {
+      scene: await this.audioAgent.execute(scene),
+    };
+  }
+
+  async assembleVideo(
+    scenes: SceneScript[],
+    projectName?: string,
+  ): Promise<AssembleVideoResponseDto> {
+    return {
+      finalVideoPath: await this.assemblyAgent.execute(scenes, projectName),
     };
   }
 }

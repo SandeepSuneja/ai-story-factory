@@ -11,7 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PromptAgent = void 0;
 const common_1 = require("@nestjs/common");
-const openai_service_1 = require("../services/openai.service");
+const qwen_service_1 = require("../services/qwen.service");
 let PromptAgent = class PromptAgent {
     ai;
     constructor(ai) {
@@ -19,16 +19,17 @@ let PromptAgent = class PromptAgent {
     }
     async execute(scene, characterAppearance) {
         const prompt = `
-Create a cinematic AI video prompt for this scene.
+Create a short cinematic motion prompt for CogVideoX image-to-video generation.
 
 Requirements:
-- Vertical 9:16
-- Realistic
-- Ultra detailed
-- Dramatic lighting
-- Use the exact character appearance in every scene
+- Maximum 180 words (226 tokens for CogVideoX)
+- Do NOT describe character appearance — the input image already shows the character
+- Focus on camera movement, subject motion, lighting changes, atmosphere, and mood
+- Horizontal 3:2 framing (720x480, matches video output)
+- One continuous shot, smooth natural motion
+- Ultra detailed lighting and atmosphere only
 
-Character appearance:
+Character appearance (for context only — do not repeat in output):
 ${characterAppearance}
 
 Scene narration:
@@ -37,7 +38,7 @@ ${scene.narration}
 Scene visual:
 ${scene.visualDescription}
 
-Return only the video prompt.
+Return only the motion prompt, under 180 words.
 `;
         return this.ai.generate(prompt);
     }
@@ -45,6 +46,6 @@ Return only the video prompt.
 exports.PromptAgent = PromptAgent;
 exports.PromptAgent = PromptAgent = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [openai_service_1.OpenAIService])
+    __metadata("design:paramtypes", [qwen_service_1.QwenService])
 ], PromptAgent);
 //# sourceMappingURL=prompt.agent.js.map

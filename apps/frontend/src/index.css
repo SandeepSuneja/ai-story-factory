@@ -10,6 +10,8 @@
   --accent: #a78bfa;
   --accent-bg: rgba(167, 139, 250, 0.12);
   --accent-border: rgba(167, 139, 250, 0.35);
+  --scrollbar-thumb: rgba(148, 163, 184, 0.28);
+  --scrollbar-thumb-hover: rgba(167, 139, 250, 0.5);
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
 
   font-family: Inter, system-ui, sans-serif;
@@ -30,10 +32,15 @@
   box-sizing: border-box;
 }
 
+html {
+  overflow-y: auto;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-y: auto;
 }
 
 #root {
@@ -43,4 +50,31 @@ body {
 button,
 input {
   font: inherit;
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.custom-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
 }

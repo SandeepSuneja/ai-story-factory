@@ -13,6 +13,12 @@ import {
   GenerateScriptResponseDto,
   GenerateStoryRequestDto,
   GenerateStoryResponseDto,
+  GenerateVideoRequestDto,
+  GenerateVideoResponseDto,
+  GenerateAudioRequestDto,
+  GenerateAudioResponseDto,
+  AssembleVideoRequestDto,
+  AssembleVideoResponseDto,
 } from './models/content.model';
 
 @Controller()
@@ -64,5 +70,26 @@ export class AppController {
     @Body() body: GenerateImageRequestDto,
   ): Promise<GenerateImageResponseDto> {
     return this.appService.generateImage(body.scene);
+  }
+
+  @Post('generate/video')
+  generateVideo(
+    @Body() body: GenerateVideoRequestDto,
+  ): Promise<GenerateVideoResponseDto> {
+    return this.appService.generateVideo(body.scene);
+  }
+
+  @Post('generate/audio')
+  generateAudio(
+    @Body() body: GenerateAudioRequestDto,
+  ): Promise<GenerateAudioResponseDto> {
+    return this.appService.generateAudio(body.scene);
+  }
+
+  @Post('generate/assembly')
+  assembleVideo(
+    @Body() body: AssembleVideoRequestDto,
+  ): Promise<AssembleVideoResponseDto> {
+    return this.appService.assembleVideo(body.scenes, body.projectName);
   }
 }

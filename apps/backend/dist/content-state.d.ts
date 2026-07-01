@@ -1,3 +1,4 @@
+export type PipelineStep = 'topic' | 'idea' | 'story' | 'script' | 'character' | 'prompts' | 'images' | 'videos' | 'audio' | 'assembly' | 'complete';
 export interface ContentState {
     topic: string;
     idea?: string;

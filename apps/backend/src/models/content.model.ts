@@ -49,3 +49,28 @@ export class GenerateImageRequestDto {
 export class GenerateImageResponseDto {
   scene: SceneScript;
 }
+
+export class GenerateVideoRequestDto {
+  scene: SceneScript;
+}
+
+export class GenerateVideoResponseDto {
+  scene: SceneScript;
+}
+
+export class GenerateAudioRequestDto {
+  scene: SceneScript;
+}
+
+export class GenerateAudioResponseDto {
+  scene: SceneScript;
+}
+
+export class AssembleVideoRequestDto {
+  scenes: SceneScript[];
+  projectName?: string;
+}
+
+export class AssembleVideoResponseDto {
+  finalVideoPath: string;
+}

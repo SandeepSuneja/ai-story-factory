@@ -61,6 +61,14 @@ export interface GenerateImageResponse {
   scene: SceneScript;
 }
 
+export interface GenerateVideoRequest {
+  scene: SceneScript;
+}
+
+export interface GenerateVideoResponse {
+  scene: SceneScript;
+}
+
 export type PipelineStep =
   | 'topic'
   | 'idea'
@@ -69,4 +77,24 @@ export type PipelineStep =
   | 'character'
   | 'prompts'
   | 'images'
+  | 'videos'
+  | 'audio'
+  | 'assembly'
   | 'complete';
+
+export interface GenerateAudioRequest {
+  scene: SceneScript;
+}
+
+export interface GenerateAudioResponse {
+  scene: SceneScript;
+}
+
+export interface AssembleVideoRequest {
+  scenes: SceneScript[];
+  projectName?: string;
+}
+
+export interface AssembleVideoResponse {
+  finalVideoPath: string;
+}

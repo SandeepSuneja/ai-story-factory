@@ -5,14 +5,14 @@ const langgraph_1 = require("@langchain/langgraph");
 const idea_agent_1 = require("../agents/idea.agent");
 const story_agent_1 = require("../agents/story.agent");
 const script_agent_1 = require("../agents/script.agent");
-const openai_service_1 = require("../services/openai.service");
+const qwen_service_1 = require("../services/qwen.service");
 const ContentStateAnnotation = langgraph_1.Annotation.Root({
     topic: (langgraph_1.Annotation),
     idea: (langgraph_1.Annotation),
     story: (langgraph_1.Annotation),
     script: (langgraph_1.Annotation),
 });
-const ai = new openai_service_1.OpenAIService();
+const ai = new qwen_service_1.QwenService();
 const ideaAgent = new idea_agent_1.IdeaAgent(ai);
 const storyAgent = new story_agent_1.StoryAgent(ai);
 const scriptAgent = new script_agent_1.ScriptAgent(ai);

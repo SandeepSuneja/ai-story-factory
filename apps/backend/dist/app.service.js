@@ -11,11 +11,14 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppService = void 0;
 const common_1 = require("@nestjs/common");
+const assembly_agent_1 = require("./agents/assembly.agent");
+const audio_agent_1 = require("./agents/audio.agent");
 const character_agent_1 = require("./agents/character.agent");
 const idea_agent_1 = require("./agents/idea.agent");
 const image_agent_1 = require("./agents/image.agent");
 const prompt_agent_1 = require("./agents/prompt.agent");
 const script_agent_1 = require("./agents/script.agent");
+const video_agent_1 = require("./agents/video.agent");
 const story_agent_1 = require("./agents/story.agent");
 let AppService = class AppService {
     ideaAgent;
@@ -24,13 +27,19 @@ let AppService = class AppService {
     characterAgent;
     promptAgent;
     imageAgent;
-    constructor(ideaAgent, storyAgent, scriptAgent, characterAgent, promptAgent, imageAgent) {
+    videoAgent;
+    audioAgent;
+    assemblyAgent;
+    constructor(ideaAgent, storyAgent, scriptAgent, characterAgent, promptAgent, imageAgent, videoAgent, audioAgent, assemblyAgent) {
         this.ideaAgent = ideaAgent;
         this.storyAgent = storyAgent;
         this.scriptAgent = scriptAgent;
         this.characterAgent = characterAgent;
         this.promptAgent = promptAgent;
         this.imageAgent = imageAgent;
+        this.videoAgent = videoAgent;
+        this.audioAgent = audioAgent;
+        this.assemblyAgent = assemblyAgent;
     }
     getHello() {
         return 'Hello World!';
@@ -64,6 +73,21 @@ let AppService = class AppService {
             scene: await this.imageAgent.execute(scene),
         };
     }
+    async generateVideo(scene) {
+        return {
+            scene: await this.videoAgent.execute(scene),
+        };
+    }
+    async generateAudio(scene) {
+        return {
+            scene: await this.audioAgent.execute(scene),
+        };
+    }
+    async assembleVideo(scenes, projectName) {
+        return {
+            finalVideoPath: await this.assemblyAgent.execute(scenes, projectName),
+        };
+    }
 };
 exports.AppService = AppService;
 exports.AppService = AppService = __decorate([
@@ -73,6 +97,9 @@ exports.AppService = AppService = __decorate([
         script_agent_1.ScriptAgent,
         character_agent_1.CharacterAgent,
         prompt_agent_1.PromptAgent,
-        image_agent_1.ImageAgent])
+        image_agent_1.ImageAgent,
+        video_agent_1.VideoAgent,
+        audio_agent_1.AudioAgent,
+        assembly_agent_1.AssemblyAgent])
 ], AppService);
 //# sourceMappingURL=app.service.js.map

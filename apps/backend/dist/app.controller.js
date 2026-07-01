@@ -42,6 +42,15 @@ let AppController = class AppController {
     generateImage(body) {
         return this.appService.generateImage(body.scene);
     }
+    generateVideo(body) {
+        return this.appService.generateVideo(body.scene);
+    }
+    generateAudio(body) {
+        return this.appService.generateAudio(body.scene);
+    }
+    assembleVideo(body) {
+        return this.appService.assembleVideo(body.scenes, body.projectName);
+    }
 };
 exports.AppController = AppController;
 __decorate([
@@ -92,6 +101,27 @@ __decorate([
     __metadata("design:paramtypes", [content_model_1.GenerateImageRequestDto]),
     __metadata("design:returntype", Promise)
 ], AppController.prototype, "generateImage", null);
+__decorate([
+    (0, common_1.Post)('generate/video'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [content_model_1.GenerateVideoRequestDto]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generateVideo", null);
+__decorate([
+    (0, common_1.Post)('generate/audio'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [content_model_1.GenerateAudioRequestDto]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "generateAudio", null);
+__decorate([
+    (0, common_1.Post)('generate/assembly'),
+    __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [content_model_1.AssembleVideoRequestDto]),
+    __metadata("design:returntype", Promise)
+], AppController.prototype, "assembleVideo", null);
 exports.AppController = AppController = __decorate([
     (0, common_1.Controller)(),
     __metadata("design:paramtypes", [app_service_1.AppService])

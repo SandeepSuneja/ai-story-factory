@@ -11,7 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.StoryAgent = void 0;
 const common_1 = require("@nestjs/common");
-const openai_service_1 = require("../services/openai.service");
+const qwen_service_1 = require("../services/qwen.service");
 let StoryAgent = class StoryAgent {
     ai;
     constructor(ai) {
@@ -32,6 +32,6 @@ Idea:${idea}
 exports.StoryAgent = StoryAgent;
 exports.StoryAgent = StoryAgent = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [openai_service_1.OpenAIService])
+    __metadata("design:paramtypes", [qwen_service_1.QwenService])
 ], StoryAgent);
 //# sourceMappingURL=story.agent.js.map

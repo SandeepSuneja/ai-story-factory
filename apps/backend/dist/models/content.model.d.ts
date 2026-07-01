@@ -37,3 +37,22 @@ export declare class GenerateImageRequestDto {
 export declare class GenerateImageResponseDto {
     scene: SceneScript;
 }
+export declare class GenerateVideoRequestDto {
+    scene: SceneScript;
+}
+export declare class GenerateVideoResponseDto {
+    scene: SceneScript;
+}
+export declare class GenerateAudioRequestDto {
+    scene: SceneScript;
+}
+export declare class GenerateAudioResponseDto {
+    scene: SceneScript;
+}
+export declare class AssembleVideoRequestDto {
+    scenes: SceneScript[];
+    projectName?: string;
+}
+export declare class AssembleVideoResponseDto {
+    finalVideoPath: string;
+}

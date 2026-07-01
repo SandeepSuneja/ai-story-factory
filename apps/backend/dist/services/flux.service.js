@@ -9,6 +9,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.FluxService = void 0;
 const common_1 = require("@nestjs/common");
 const path_1 = require("path");
+const inference_fetch_1 = require("./inference-fetch");
 let FluxService = class FluxService {
     serviceUrl = process.env.FLUX_SERVICE_URL ?? "http://127.0.0.1:7860";
     getStorageDirectory() {
@@ -16,7 +17,7 @@ let FluxService = class FluxService {
             (0, path_1.join)(process.cwd(), "storage", "images"));
     }
     async generateImage(prompt, sceneNumber) {
-        const response = await fetch(`${this.serviceUrl}/generate`, {
+        const response = await (0, inference_fetch_1.inferenceFetch)(`${this.serviceUrl}/generate`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",

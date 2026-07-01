@@ -3,7 +3,7 @@ import { IdeaAgent } from "../agents/idea.agent";
 import { StoryAgent } from "../agents/story.agent";
 import { ScriptAgent } from "../agents/script.agent";
 import type { SceneScript } from "../content-state";
-import { OpenAIService } from "../services/openai.service";
+import { QwenService } from "../services/qwen.service";
 
 const ContentStateAnnotation = Annotation.Root({
   topic: Annotation<string>,
@@ -12,7 +12,7 @@ const ContentStateAnnotation = Annotation.Root({
   script: Annotation<SceneScript[] | undefined>,
 });
 
-const ai = new OpenAIService();
+const ai = new QwenService();
 const ideaAgent = new IdeaAgent(ai);
 const storyAgent = new StoryAgent(ai);
 const scriptAgent = new ScriptAgent(ai);
