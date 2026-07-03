@@ -3,10 +3,13 @@ apps/backend/node_modules
 apps/frontend/node_modules
 apps/frontend/dist
 apps/backend/storage
-apps/backend/flux-service/__pycache__/
+apps/backend/dist/
+**/__pycache__/
+*.pyc
 apps/backend/flux-service/.venv/
 apps/backend/qwen-service/.venv/
 apps/backend/hunyuan-service/.venv/
+apps/backend/hunyuan-service/.offload/
 apps/backend/tts-service/.venv/
 apps/backend/assembly-service/.venv/
-apps/backend/dist
+apps/backend/upscale-service/.venv/

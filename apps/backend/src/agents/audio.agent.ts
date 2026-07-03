@@ -1,12 +1,15 @@
 import { Injectable } from "@nestjs/common";
-import type { SceneScript } from "../content-state";
+import type { SceneScript, StoryLanguage } from "../content-state";
 import { TtsService } from "../services/tts.service";
 
 @Injectable()
 export class AudioAgent {
   constructor(private readonly tts: TtsService) {}
 
-  async execute(scene: SceneScript): Promise<SceneScript> {
+  async execute(
+    scene: SceneScript,
+    language: StoryLanguage = "en",
+  ): Promise<SceneScript> {
     const narration = scene.narration?.trim();
     if (!narration) {
       throw new Error(
@@ -17,6 +20,7 @@ export class AudioAgent {
     const audioPath = await this.tts.generateAudio(
       narration,
       scene.sceneNumber,
+      language,
     );
 
     return {

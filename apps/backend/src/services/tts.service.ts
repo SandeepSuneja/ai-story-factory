@@ -64,6 +64,7 @@ export class TtsService {
   async generateAudio(
     text: string,
     sceneNumber: number,
+    language = "en",
   ): Promise<string> {
     await this.assertServiceReachable();
 
@@ -75,6 +76,7 @@ export class TtsService {
       body: JSON.stringify({
         text,
         scene_number: sceneNumber,
+        language,
       }),
     });
 

@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -20,8 +21,13 @@ STORAGE_DIR = Path(
 )
 NUM_INFERENCE_STEPS = int(os.environ.get("FLUX_INFERENCE_STEPS", "28"))
 GUIDANCE_SCALE = float(os.environ.get("FLUX_GUIDANCE_SCALE", "3.5"))
-IMAGE_WIDTH = int(os.environ.get("FLUX_IMAGE_WIDTH", "720"))
+IMAGE_WIDTH = int(os.environ.get("FLUX_IMAGE_WIDTH", "832"))
 IMAGE_HEIGHT = int(os.environ.get("FLUX_IMAGE_HEIGHT", "480"))
+FLUX_CLIP_MAX_TOKENS = int(os.environ.get("FLUX_CLIP_MAX_TOKENS", "77"))
+FLUX_PROMPT_SUFFIX = os.environ.get(
+    "FLUX_PROMPT_SUFFIX",
+    "cinematic lighting, photorealistic",
+)
 # full = all weights on GPU (needs ~24GB VRAM)
 # model = move one component at a time (good for 16GB)
 # sequential = submodule-level offload (safest for 12GB)
@@ -65,6 +71,90 @@ def configure_pipeline_memory(pipeline: FluxPipeline, device: str) -> str:
     pipeline.to("cpu")
     pipeline.enable_attention_slicing()
     return "cpu"
+
+
+def strip_flux_boilerplate(prompt: str) -> str:
+    """Remove resolution/aspect tags that waste CLIP tokens without helping FLUX."""
+    text = prompt.strip()
+    text = re.sub(
+        r"\b(horizontal\s*)?16\s*:\s*9\b[^.]*",
+        "",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(r"\b832\s*[x×]\s*480\b", "", text, flags=re.I)
+    text = re.sub(
+        r"\b(keyframe|frozen moment|single frame|photographable frame)\b",
+        "",
+        text,
+        flags=re.I,
+    )
+    text = re.sub(r"\s+", " ", text).strip(" ,.-")
+    return text
+
+
+def clip_token_count(tokenizer, text: str) -> int:
+    return len(tokenizer.encode(text, add_special_tokens=True, truncation=False))
+
+
+def prepare_flux_prompt(prompt: str, pipeline: FluxPipeline) -> str:
+    """Fit prompt into CLIP's 77-token limit; keep scene/subject at the start."""
+    text = strip_flux_boilerplate(prompt)
+    if not text:
+        text = prompt.strip()
+
+    tokenizer = pipeline.tokenizer
+    suffix = FLUX_PROMPT_SUFFIX.strip()
+    original_tokens = clip_token_count(tokenizer, text)
+
+    suffix_tokens = clip_token_count(tokenizer, f"x, {suffix}") if suffix else 0
+    text_budget = max(16, FLUX_CLIP_MAX_TOKENS - suffix_tokens)
+
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+    selected: list[str] = []
+    for sentence in sentences:
+        candidate = " ".join(selected + [sentence])
+        if clip_token_count(tokenizer, candidate) <= text_budget:
+            selected.append(sentence)
+        else:
+            break
+
+    if selected:
+        compact = " ".join(selected)
+    elif original_tokens <= text_budget:
+        compact = text
+    else:
+        token_ids = tokenizer.encode(
+            text,
+            add_special_tokens=False,
+            truncation=True,
+            max_length=text_budget,
+        )
+        compact = tokenizer.decode(token_ids, skip_special_tokens=True).strip()
+
+    result = f"{compact}, {suffix}" if suffix else compact
+    if suffix and clip_token_count(tokenizer, result) > FLUX_CLIP_MAX_TOKENS:
+        result = compact
+
+    final_tokens = clip_token_count(tokenizer, result)
+    if final_tokens > FLUX_CLIP_MAX_TOKENS:
+        token_ids = tokenizer.encode(
+            result,
+            add_special_tokens=True,
+            truncation=True,
+            max_length=FLUX_CLIP_MAX_TOKENS,
+        )
+        result = tokenizer.decode(token_ids, skip_special_tokens=True).strip()
+        final_tokens = clip_token_count(tokenizer, result)
+
+    if final_tokens < original_tokens:
+        logger.info(
+            "CLIP prompt compressed from %s to %s tokens",
+            original_tokens,
+            final_tokens,
+        )
+
+    return result
 
 
 class GenerateImageRequest(BaseModel):
@@ -115,9 +205,10 @@ def generate_image(request: GenerateImageRequest) -> GenerateImageResponse:
     output_path = STORAGE_DIR / filename
 
     try:
+        flux_prompt = prepare_flux_prompt(request.prompt, pipe)
         with torch.inference_mode():
             result = pipe(
-                request.prompt,
+                flux_prompt,
                 height=IMAGE_HEIGHT,
                 width=IMAGE_WIDTH,
                 guidance_scale=GUIDANCE_SCALE,

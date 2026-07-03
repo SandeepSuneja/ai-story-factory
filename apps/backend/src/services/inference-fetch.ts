@@ -1,7 +1,8 @@
 import { Agent, fetch } from "undici";
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
-const DEFAULT_VIDEO_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_VIDEO_TIMEOUT_MS = 48 * 60 * 60 * 1000;
+const DEFAULT_FLUX_TIMEOUT_MS = 48 * 60 * 60 * 1000;
 
 function readTimeoutMs(name: string, fallback: number): number {
   const raw = process.env[name]?.trim();
@@ -53,6 +54,20 @@ const videoInferenceAgent = createInferenceAgent({
   ),
 });
 
+const fluxInferenceAgent = createInferenceAgent({
+  headersTimeoutMs: readTimeoutMs(
+    "FLUX_HEADERS_TIMEOUT_MS",
+    readTimeoutMs(
+      "INFERENCE_HEADERS_TIMEOUT_MS",
+      DEFAULT_FLUX_TIMEOUT_MS,
+    ),
+  ),
+  bodyTimeoutMs: readTimeoutMs(
+    "FLUX_BODY_TIMEOUT_MS",
+    readTimeoutMs("INFERENCE_BODY_TIMEOUT_MS", DEFAULT_FLUX_TIMEOUT_MS),
+  ),
+});
+
 type InferenceFetchInit = NonNullable<Parameters<typeof fetch>[1]>;
 
 export function inferenceFetch(
@@ -72,5 +87,15 @@ export function videoInferenceFetch(
   return fetch(url, {
     ...init,
     dispatcher: videoInferenceAgent,
+  });
+}
+
+export function fluxInferenceFetch(
+  url: string | URL,
+  init?: InferenceFetchInit,
+): ReturnType<typeof fetch> {
+  return fetch(url, {
+    ...init,
+    dispatcher: fluxInferenceAgent,
   });
 }

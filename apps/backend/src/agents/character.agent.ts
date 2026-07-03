@@ -1,12 +1,17 @@
 import { Injectable } from "@nestjs/common";
-import type { SceneScript } from "../content-state";
+import type { SceneScript, StoryLanguage } from "../content-state";
+import { languageOutputRule } from "../language";
 import { QwenService } from "../services/qwen.service";
 
 @Injectable()
 export class CharacterAgent {
   constructor(private readonly ai: QwenService) {}
 
-  async executeProfile(story: string, script: SceneScript[]) {
+  async executeProfile(
+    story: string,
+    script: SceneScript[],
+    language: StoryLanguage = "en",
+  ) {
     const scenesSummary = script
       .map(
         (scene) =>
@@ -24,6 +29,7 @@ Requirements:
 - Must fit the story and all script scenes
 - Suitable for AI image and video generation
 - 80-120 words
+${languageOutputRule(language)}
 
 Return only the character appearance description.
 

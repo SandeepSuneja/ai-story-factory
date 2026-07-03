@@ -9,6 +9,8 @@ import {
   generateVideo,
   generateAudio,
   assembleVideo,
+  upscaleScene,
+  uploadSceneVideo,
 } from '../api/generate';
 import {
   createProject,
@@ -18,7 +20,12 @@ import {
   updateProject,
 } from '../api/projects';
 import { ProjectSidebar } from './ProjectSidebar';
-import type { PipelineStep, SceneScript } from '../types/content';
+import type {
+  PipelineStep,
+  SceneScript,
+  StoryLanguage,
+  VideoGenerationMode,
+} from '../types/content';
 import {
   ACTIVE_PROJECT_STORAGE_KEY,
   createEmptyProjectState,
@@ -31,14 +38,27 @@ import {
 import {
   getResumeProgressLabel,
   inferInterruptedStep,
+  resolveEffectiveReviewStep,
   serializePipelineState,
+  shouldReviewImagesStep,
 } from '../utils/pipeline-state';
 
-const EXAMPLE_TOPICS = [
-  'Time Traveler',
-  'Lost in the Metaverse',
-  'The Last Lighthouse Keeper',
-];
+const EXAMPLE_TOPICS: Record<StoryLanguage, string[]> = {
+  en: [
+    'Time Traveler',
+    'Lost in the Metaverse',
+    'The Last Lighthouse Keeper',
+  ],
+  hi: [
+    'समय यात्री',
+    'मेटावर्स में खोया',
+    'आखिरी प्रकाशस्तंभ रखवाल',
+  ],
+};
+
+function getStoryLanguageLabel(language: StoryLanguage): string {
+  return language === 'hi' ? 'हिन्दी' : 'English';
+}
 
 const STEPS: { id: PipelineStep; label: string }[] = [
   { id: 'idea', label: 'Idea' },
@@ -47,7 +67,7 @@ const STEPS: { id: PipelineStep; label: string }[] = [
   { id: 'character', label: 'Character' },
   { id: 'prompts', label: 'Video prompts' },
   { id: 'images', label: 'Images' },
-  { id: 'videos', label: 'Videos' },
+  { id: 'videos', label: 'Scene videos (1080p)' },
   { id: 'audio', label: 'Narration audio' },
   { id: 'assembly', label: 'Final video' },
 ];
@@ -77,8 +97,74 @@ function getStepNumber(step: PipelineStep): number {
   return index === -1 ? 0 : index + 1;
 }
 
+function countUpscaledScenes(scenes: SceneScript[]): number {
+  return scenes.filter((scene) => scene.upscaledVideoPath?.trim()).length;
+}
+
+function normalizeLegacyStep(step: PipelineStep | null): PipelineStep | null {
+  if ((step as string | null) === 'upscale') {
+    return 'videos';
+  }
+
+  return step;
+}
+
+async function upscaleSceneVideo(scene: SceneScript): Promise<SceneScript> {
+  if (!scene.videoPath?.trim()) {
+    throw new Error(`Scene ${scene.sceneNumber} is missing a source video.`);
+  }
+
+  const response = await upscaleScene({ scene });
+  return sanitizeVideoScenes([response.scene])[0];
+}
+
+async function generateVideoAndUpscale(
+  imageScene: SceneScript,
+): Promise<SceneScript> {
+  const videoResponse = await generateVideo({ scene: imageScene });
+  return upscaleSceneVideo(videoResponse.scene);
+}
+
+function sanitizeVideoScenes(scenes: SceneScript[]): SceneScript[] {
+  return scenes.map((scene) => {
+    if (!scene.upscaledVideoPath?.trim()) {
+      return scene;
+    }
+
+    const { videoPath: _videoPath, ...rest } = scene;
+    return rest;
+  });
+}
+
+function buildAssemblyScenes(
+  videoScenes: SceneScript[],
+  audioScenes: SceneScript[],
+): SceneScript[] {
+  const orderedVideos = sanitizeVideoScenes(sortScenesByNumber(videoScenes));
+
+  return orderedVideos.map((videoScene) => {
+    const audioScene = audioScenes.find(
+      (entry) => entry.sceneNumber === videoScene.sceneNumber,
+    );
+
+    if (!audioScene) {
+      return videoScene;
+    }
+
+    return {
+      ...videoScene,
+      audioPath: audioScene.audioPath ?? videoScene.audioPath,
+      narration: audioScene.narration ?? videoScene.narration,
+      duration: audioScene.duration ?? videoScene.duration,
+    };
+  });
+}
+
 export function StoryGenerator() {
   const [topic, setTopic] = useState('');
+  const [storyLanguage, setStoryLanguage] = useState<StoryLanguage>('en');
+  const [videoGenerationMode, setVideoGenerationMode] =
+    useState<VideoGenerationMode>('local');
   const [currentStep, setCurrentStep] = useState<PipelineStep>('topic');
   const [reviewStep, setReviewStep] = useState<PipelineStep | null>(null);
   const [generatingStep, setGeneratingStep] = useState<PipelineStep | null>(
@@ -143,27 +229,49 @@ export function StoryGenerator() {
   const applyProjectState = useCallback((state: ProjectState | Partial<ProjectState>) => {
     const normalized = mergeProjectState(state);
     setTopic(normalized.topic);
-    setCurrentStep(normalized.currentStep);
-    setReviewStep(normalized.reviewStep);
+    setStoryLanguage(normalized.storyLanguage);
+    setVideoGenerationMode(normalized.videoGenerationMode);
+    setCurrentStep(
+      normalizeLegacyStep(normalized.currentStep) ?? normalized.currentStep,
+    );
     setIdea(normalized.idea);
     setStory(normalized.story);
     setScriptScenes(normalized.scriptScenes);
     setCharacterAppearance(normalized.characterAppearance);
     setPromptedScenes(normalized.promptedScenes);
     setImageScenes(normalized.imageScenes);
-    setVideoScenes(normalized.videoScenes);
+    setVideoScenes(sanitizeVideoScenes(normalized.videoScenes));
     setAudioScenes(normalized.audioScenes);
     setFinalVideoPath(normalized.finalVideoPath);
     setApprovedThroughIndex(normalized.approvedThroughIndex);
     setExpandedSteps(normalized.expandedSteps);
     const interruptedStep = inferInterruptedStep(normalized);
-    const nextFailedStep = normalized.failedStep ?? interruptedStep;
+    let nextFailedStep = normalized.failedStep ?? interruptedStep;
+    if ((nextFailedStep as string | null) === 'upscale') {
+      nextFailedStep = 'videos';
+    }
+    let nextReviewStep = normalizeLegacyStep(normalized.reviewStep);
+    let nextPipelineError = normalized.pipelineError;
+
+    if (
+      shouldReviewImagesStep({
+        ...normalized,
+        failedStep: nextFailedStep,
+        reviewStep: nextReviewStep,
+      })
+    ) {
+      nextReviewStep = 'images';
+      nextFailedStep = null;
+      nextPipelineError = null;
+    }
+
+    setReviewStep(nextReviewStep);
     setFailedStep(nextFailedStep);
     setGeneratingStep(null);
     setRegeneratingSceneIndex(null);
     setSceneProgressIndex(0);
     setError(
-      normalized.pipelineError ??
+      nextPipelineError ??
         (nextFailedStep
           ? 'Generation was interrupted. Resume to continue from where you left off.'
           : null),
@@ -174,6 +282,8 @@ export function StoryGenerator() {
     (): ProjectState =>
       serializePipelineState({
         topic,
+        storyLanguage,
+        videoGenerationMode,
         currentStep,
         reviewStep,
         idea,
@@ -182,7 +292,7 @@ export function StoryGenerator() {
         characterAppearance,
         promptedScenes,
         imageScenes,
-        videoScenes,
+        videoScenes: sanitizeVideoScenes(videoScenes),
         audioScenes,
         finalVideoPath,
         approvedThroughIndex,
@@ -192,6 +302,8 @@ export function StoryGenerator() {
       }),
     [
       topic,
+      storyLanguage,
+      videoGenerationMode,
       currentStep,
       reviewStep,
       idea,
@@ -337,6 +449,8 @@ export function StoryGenerator() {
     switchingProject,
     persistActiveProject,
     topic,
+    storyLanguage,
+    videoGenerationMode,
     currentStep,
     reviewStep,
     idea,
@@ -395,6 +509,37 @@ export function StoryGenerator() {
       window.cancelAnimationFrame(frame);
     };
   }, [failedStep, loading, reviewStep]);
+
+  useEffect(() => {
+    if (loading || reviewStep) {
+      return;
+    }
+
+    if (
+      !shouldReviewImagesStep({
+        reviewStep,
+        approvedThroughIndex,
+        promptedScenes,
+        imageScenes,
+        currentStep,
+        failedStep,
+      })
+    ) {
+      return;
+    }
+
+    setReviewStep('images');
+    setFailedStep(null);
+    setError(null);
+  }, [
+    loading,
+    reviewStep,
+    approvedThroughIndex,
+    promptedScenes,
+    imageScenes,
+    currentStep,
+    failedStep,
+  ]);
 
   function resetPipelineState() {
     applyProjectState(createEmptyProjectState());
@@ -487,11 +632,31 @@ export function StoryGenerator() {
   }
 
   function expandAllSteps() {
-    setExpandedSteps({ 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true });
+    setExpandedSteps({
+      1: true,
+      2: true,
+      3: true,
+      4: true,
+      5: true,
+      6: true,
+      7: true,
+      8: true,
+      9: true,
+    });
   }
 
   function collapseAllSteps() {
-    setExpandedSteps({ 1: false, 2: false, 3: false, 4: false, 5: false, 6: false, 7: false, 8: false, 9: false });
+    setExpandedSteps({
+      1: false,
+      2: false,
+      3: false,
+      4: false,
+      5: false,
+      6: false,
+      7: false,
+      8: false,
+      9: false,
+    });
   }
 
   function revealStep(step: number) {
@@ -588,7 +753,10 @@ export function StoryGenerator() {
           if (!trimmedTopic) {
             throw new Error('Please enter a topic.');
           }
-          const response = await generateIdea({ topic: trimmedTopic });
+          const response = await generateIdea({
+            topic: trimmedTopic,
+            storyLanguage,
+          });
           setIdea(response.idea);
           revealStep(1);
           break;
@@ -597,7 +765,7 @@ export function StoryGenerator() {
           if (!idea) {
             throw new Error('Generate an idea first.');
           }
-          const response = await generateStory({ idea });
+          const response = await generateStory({ idea, storyLanguage });
           setStory(response.story);
           revealStep(2);
           break;
@@ -606,7 +774,7 @@ export function StoryGenerator() {
           if (!story) {
             throw new Error('Generate a story first.');
           }
-          const response = await generateScript({ story });
+          const response = await generateScript({ story, storyLanguage });
           setScriptScenes(response.script);
           revealStep(3);
           break;
@@ -618,6 +786,7 @@ export function StoryGenerator() {
           const response = await generateCharacterProfile({
             story,
             script: scriptScenes,
+            storyLanguage,
           });
           setCharacterAppearance(response.characterAppearance);
           revealStep(4);
@@ -634,6 +803,8 @@ export function StoryGenerator() {
             const response = await generatePrompt({
               scene: scriptScenes[index],
               characterAppearance,
+              videoMode: videoGenerationMode,
+              storyLanguage,
             });
             scenesWithPrompts.push(response.scene);
             setPromptedScenes([...scenesWithPrompts]);
@@ -660,18 +831,46 @@ export function StoryGenerator() {
           if (imageScenes.length === 0) {
             throw new Error('Generate scene images first.');
           }
+
+          if (videoGenerationMode === 'professional') {
+            revealStep(7);
+            break;
+          }
+
           const orderedScenes = sortScenesByNumber(imageScenes);
-          const startIndex = options.resume ? videoScenes.length : 0;
+          const startIndex = options.resume
+            ? countUpscaledScenes(videoScenes)
+            : videoScenes.length;
 
           if (startIndex >= orderedScenes.length) {
             revealStep(7);
             break;
           }
 
-          if (!options.resume) {
+          if (!options.resume && videoScenes.length === 0) {
             setVideoScenes([]);
             setAudioScenes([]);
             setFinalVideoPath(null);
+          }
+
+          if (options.resume) {
+            const scenesWithVideo = [...videoScenes];
+            for (let index = startIndex; index < orderedScenes.length; index++) {
+              const imageScene = orderedScenes[index];
+              const existing = scenesWithVideo[index];
+              if (existing?.upscaledVideoPath?.trim()) {
+                continue;
+              }
+
+              setSceneProgressIndex(index);
+              const upscaledScene = existing?.videoPath?.trim()
+                ? await upscaleSceneVideo(existing)
+                : await generateVideoAndUpscale(imageScene);
+              scenesWithVideo[index] = upscaledScene;
+              setVideoScenes(sanitizeVideoScenes([...scenesWithVideo]));
+            }
+            revealStep(7);
+            break;
           }
 
           const scene = orderedScenes[startIndex];
@@ -687,10 +886,10 @@ export function StoryGenerator() {
           }
 
           setSceneProgressIndex(startIndex);
-          const response = await generateVideo({ scene });
+          const upscaledScene = await generateVideoAndUpscale(scene);
           setVideoScenes((current) => {
-            const next = options.resume ? [...current] : [];
-            next[startIndex] = response.scene;
+            const next = [...current];
+            next[startIndex] = upscaledScene;
             return next.slice(0, startIndex + 1);
           });
           revealStep(7);
@@ -699,6 +898,9 @@ export function StoryGenerator() {
         case 'audio': {
           if (videoScenes.length === 0) {
             throw new Error('Generate scene videos first.');
+          }
+          if (countUpscaledScenes(videoScenes) < videoScenes.length) {
+            throw new Error('Finish generating 1080p scene videos first.');
           }
           const orderedScenes = sortScenesByNumber(videoScenes);
           const startIndex = options.resume ? audioScenes.length : 0;
@@ -711,7 +913,7 @@ export function StoryGenerator() {
               );
             }
             setSceneProgressIndex(index);
-            const response = await generateAudio({ scene });
+            const response = await generateAudio({ scene, storyLanguage });
             scenesWithAudio.push(response.scene);
             setAudioScenes([...scenesWithAudio]);
           }
@@ -723,7 +925,7 @@ export function StoryGenerator() {
             throw new Error('Generate narration audio first.');
           }
           const response = await assembleVideo({
-            scenes: sortScenesByNumber(audioScenes),
+            scenes: buildAssemblyScenes(videoScenes, audioScenes),
             projectName: projectName.trim() || topic.trim() || undefined,
           });
           setFinalVideoPath(response.finalVideoPath);
@@ -779,7 +981,7 @@ export function StoryGenerator() {
       try {
         const created = await createProject({
           name: trimmedTopic,
-          state: { topic: trimmedTopic },
+          state: { topic: trimmedTopic, storyLanguage, videoGenerationMode },
         });
         await refreshProjectList();
         await loadProjectById(created.id);
@@ -794,53 +996,82 @@ export function StoryGenerator() {
     clearFromStep('idea');
     setReviewStep(null);
     setFailedStep(null);
-    setExpandedSteps({ 1: false, 2: false, 3: false, 4: false, 5: false, 6: false, 7: false, 8: false, 9: false });
+    setExpandedSteps({
+      1: false,
+      2: false,
+      3: false,
+      4: false,
+      5: false,
+      6: false,
+      7: false,
+      8: false,
+      9: false,
+    });
     await runStep('idea');
   }
 
   async function approveAndContinue() {
-    if (!reviewStep) {
+    const step = resolveEffectiveReviewStep({
+      reviewStep,
+      approvedThroughIndex,
+      promptedScenes,
+      imageScenes,
+      currentStep,
+      failedStep,
+    });
+
+    if (!step) {
       return;
     }
 
-    if (reviewStep === 'videos') {
-      const orderedScenes = sortScenesByNumber(imageScenes);
-      if (videoScenes.length < orderedScenes.length) {
-        setError(null);
-        setFailedStep(null);
-        setReviewStep(null);
-        setGeneratingStep('videos');
-        setCurrentStep('videos');
-
-        const nextIndex = videoScenes.length;
-        const scene = orderedScenes[nextIndex];
-
-        try {
-          setSceneProgressIndex(nextIndex);
-          const response = await generateVideo({ scene });
-          setVideoScenes((current) => {
-            const next = [...current];
-            next[nextIndex] = response.scene;
-            return next.slice(0, nextIndex + 1);
-          });
-          setReviewStep('videos');
-        } catch (err) {
-          const message =
-            err instanceof Error ? err.message : 'Something went wrong. Try again.';
-          setFailedStep('videos');
-          setError(message);
-        } finally {
-          setGeneratingStep(null);
-          setSceneProgressIndex(0);
+    if (step === 'videos') {
+      if (videoGenerationMode === 'professional') {
+        const orderedScenes = sortScenesByNumber(imageScenes);
+        if (countUpscaledScenes(videoScenes) < orderedScenes.length) {
+          setError('Upload and upscale all scene videos before continuing.');
+          return;
         }
-        return;
+      } else {
+        const orderedScenes = sortScenesByNumber(imageScenes);
+        if (countUpscaledScenes(videoScenes) < orderedScenes.length) {
+          setError(null);
+          setFailedStep(null);
+          setReviewStep(null);
+          setGeneratingStep('videos');
+          setCurrentStep('videos');
+
+          const nextIndex = countUpscaledScenes(videoScenes);
+          const scene = orderedScenes[nextIndex];
+
+          try {
+            setSceneProgressIndex(nextIndex);
+            const upscaledScene = await generateVideoAndUpscale(scene);
+            setVideoScenes((current) => {
+              const next = [...current];
+              next[nextIndex] = upscaledScene;
+              return next.slice(0, nextIndex + 1);
+            });
+            setReviewStep('videos');
+          } catch (err) {
+            const message =
+              err instanceof Error
+                ? err.message
+                : 'Something went wrong. Try again.';
+            setFailedStep('videos');
+            setError(message);
+          } finally {
+            setGeneratingStep(null);
+            setSceneProgressIndex(0);
+          }
+          return;
+        }
       }
     }
 
-    const stepIndex = STEP_ORDER.indexOf(reviewStep);
+    const stepIndex = STEP_ORDER.indexOf(step);
     setApprovedThroughIndex(stepIndex);
 
-    const nextStep = getNextStep(reviewStep);
+    const nextStep = getNextStep(step);
     setReviewStep(null);
 
     if (nextStep === 'complete') {
@@ -852,19 +1083,28 @@ export function StoryGenerator() {
   }
 
   async function regenerateCurrentStep() {
-    if (!reviewStep) {
+    const step = resolveEffectiveReviewStep({
+      reviewStep,
+      approvedThroughIndex,
+      promptedScenes,
+      imageScenes,
+      currentStep,
+      failedStep,
+    });
+
+    if (!step) {
       return;
     }
 
-    if (reviewStep === 'videos' && videoScenes.length > 0) {
+    if (step === 'videos' && videoScenes.length > 0) {
       await regenerateSceneVideo(videoScenes.length - 1);
       return;
     }
 
-    const stepIndex = STEP_ORDER.indexOf(reviewStep);
+    const stepIndex = STEP_ORDER.indexOf(step);
     setApprovedThroughIndex(stepIndex - 1);
-    clearFromStep(reviewStep);
-    await runStep(reviewStep);
+    clearFromStep(step);
+    await runStep(step);
   }
 
   async function regenerateScenePrompt(index: number) {
@@ -879,6 +1119,8 @@ export function StoryGenerator() {
       const response = await generatePrompt({
         scene: scriptScenes[index],
         characterAppearance,
+        videoMode: videoGenerationMode,
+        storyLanguage,
       });
       setPromptedScenes((current) => {
         const next = [...current];
@@ -930,7 +1172,7 @@ export function StoryGenerator() {
     setRegeneratingSceneIndex(index);
 
     try {
-      const response = await generateAudio({ scene });
+      const response = await generateAudio({ scene, storyLanguage });
       setAudioScenes((current) => {
         const next = [...current];
         next[index] = response.scene;
@@ -945,9 +1187,50 @@ export function StoryGenerator() {
     }
   }
 
+  async function uploadProfessionalSceneVideo(index: number, file: File) {
+    const scene = sortScenesByNumber(imageScenes)[index];
+    if (!scene) {
+      return;
+    }
+
+    setError(null);
+    setRegeneratingSceneIndex(index);
+
+    try {
+      const uploaded = await uploadSceneVideo(scene.sceneNumber, file);
+      const withVideo = { ...scene, videoPath: uploaded.videoPath };
+      const upscaledScene = await upscaleSceneVideo(withVideo);
+      setVideoScenes((current) => {
+        const next = [...current];
+        next[index] = upscaledScene;
+        return next.slice(0, index + 1);
+      });
+      setReviewStep('videos');
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to upload scene video.',
+      );
+    } finally {
+      setRegeneratingSceneIndex(null);
+    }
+  }
+
   async function regenerateSceneVideo(index: number) {
     const scene = videoScenes[index] ?? imageScenes[index];
     if (!scene?.imagePath || !scene.videoPrompt) {
+      return;
+    }
+
+    if (videoGenerationMode === 'professional') {
+      setVideoScenes((current) => {
+        const next = [...current];
+        next[index] = {
+          ...scene,
+          videoPath: undefined,
+          upscaledVideoPath: undefined,
+        };
+        return next;
+      });
       return;
     }
 
@@ -956,9 +1239,10 @@ export function StoryGenerator() {
 
     try {
       const response = await generateVideo({ scene });
+      const upscaledScene = await upscaleSceneVideo(response.scene);
       setVideoScenes((current) => {
         const next = [...current];
-        next[index] = response.scene;
+        next[index] = upscaledScene;
         return next;
       });
     } catch (err) {
@@ -970,16 +1254,28 @@ export function StoryGenerator() {
     }
   }
 
+  const effectiveReviewStep = resolveEffectiveReviewStep({
+    reviewStep,
+    approvedThroughIndex,
+    promptedScenes,
+    imageScenes,
+    currentStep,
+    failedStep,
+  });
+
   const orderedImageScenes = sortScenesByNumber(imageScenes);
-  const pendingVideoSceneCount = Math.max(
-    orderedImageScenes.length - videoScenes.length,
-    0,
-  );
+  const isProfessionalMode = videoGenerationMode === 'professional';
   const hasMoreVideosToGenerate =
-    reviewStep === 'videos' && pendingVideoSceneCount > 0;
+    effectiveReviewStep === 'videos' &&
+    !isProfessionalMode &&
+    countUpscaledScenes(videoScenes) < orderedImageScenes.length;
+  const nextProfessionalUploadIndex = videoScenes.length;
+  const pendingProfessionalUploadScene =
+    orderedImageScenes[nextProfessionalUploadIndex];
 
   const reviewStepLabel =
-    STEPS.find((step) => step.id === reviewStep)?.label ?? reviewStep;
+    STEPS.find((step) => step.id === effectiveReviewStep)?.label ??
+    effectiveReviewStep;
 
   const resumeProgressLabel = failedStep
     ? getResumeProgressLabel(failedStep, {
@@ -1012,13 +1308,15 @@ export function StoryGenerator() {
           currentStep={generatingStep ?? currentStep}
           sceneProgressIndex={sceneProgressIndex}
           totalScenes={
-            generatingStep === 'videos'
-              ? imageScenes.length
-              : generatingStep === 'images'
-                ? promptedScenes.length
-                : generatingStep === 'prompts'
-                  ? scriptScenes.length
-                  : scriptScenes.length
+            generatingStep === 'audio'
+              ? videoScenes.length
+              : generatingStep === 'videos'
+                ? imageScenes.length
+                : generatingStep === 'images'
+                  ? promptedScenes.length
+                  : generatingStep === 'prompts'
+                    ? scriptScenes.length
+                    : scriptScenes.length
           }
         />
       ) : null}
@@ -1039,6 +1337,16 @@ export function StoryGenerator() {
               <p className="compact-intro-title">AI Story Factory</p>
               <p className="compact-intro-topic">
                 Topic: <strong>{topic || 'Not set'}</strong>
+                {' · '}
+                Language:{' '}
+                <strong>{getStoryLanguageLabel(storyLanguage)}</strong>
+                {' · '}
+                Video:{' '}
+                <strong>
+                  {videoGenerationMode === 'professional'
+                    ? 'Professional upload'
+                    : 'Local generation'}
+                </strong>
               </p>
             </div>
           )}
@@ -1075,11 +1383,11 @@ export function StoryGenerator() {
                   placeholder="e.g. Time Traveler"
                   value={topic}
                   onChange={(event) => setTopic(event.target.value)}
-                  disabled={loading || reviewStep !== null}
+                  disabled={loading || effectiveReviewStep !== null}
                 />
                 <button
                   type="submit"
-                  disabled={loading || reviewStep !== null}
+                  disabled={loading || effectiveReviewStep !== null}
                 >
                   {loading
                     ? 'Generating...'
@@ -1090,15 +1398,93 @@ export function StoryGenerator() {
               </div>
             </form>
 
+            <fieldset
+              className="video-mode-selector"
+              disabled={loading || effectiveReviewStep !== null || pipelineStarted}
+            >
+              <legend>Story language</legend>
+              <div className="video-mode-options">
+                <label
+                  className={`video-mode-option ${storyLanguage === 'en' ? 'is-selected' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="storyLanguage"
+                    value="en"
+                    checked={storyLanguage === 'en'}
+                    onChange={() => setStoryLanguage('en')}
+                  />
+                  <span className="video-mode-option-title">English</span>
+                  <span className="video-mode-option-copy">
+                    Idea, story, script, and narration in English.
+                  </span>
+                </label>
+                <label
+                  className={`video-mode-option ${storyLanguage === 'hi' ? 'is-selected' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="storyLanguage"
+                    value="hi"
+                    checked={storyLanguage === 'hi'}
+                    onChange={() => setStoryLanguage('hi')}
+                  />
+                  <span className="video-mode-option-title">हिन्दी</span>
+                  <span className="video-mode-option-copy">
+                    Idea, story, script, and narration in Devanagari Hindi.
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset
+              className="video-mode-selector"
+              disabled={loading || effectiveReviewStep !== null || pipelineStarted}
+            >
+              <legend>Video generation</legend>
+              <div className="video-mode-options">
+                <label
+                  className={`video-mode-option ${videoGenerationMode === 'local' ? 'is-selected' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="videoGenerationMode"
+                    value="local"
+                    checked={videoGenerationMode === 'local'}
+                    onChange={() => setVideoGenerationMode('local')}
+                  />
+                  <span className="video-mode-option-title">Local</span>
+                  <span className="video-mode-option-copy">
+                    Generate scene videos on this machine with Wan image-to-video.
+                  </span>
+                </label>
+                <label
+                  className={`video-mode-option ${videoGenerationMode === 'professional' ? 'is-selected' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="videoGenerationMode"
+                    value="professional"
+                    checked={videoGenerationMode === 'professional'}
+                    onChange={() => setVideoGenerationMode('professional')}
+                  />
+                  <span className="video-mode-option-title">Professional</span>
+                  <span className="video-mode-option-copy">
+                    Use Kling, Veo, or Runway externally, then upload each scene MP4.
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
             {!introCompact ? (
               <div className="topic-chips" aria-label="Suggested topics">
                 <span className="chips-label">Suggested:</span>
-                {EXAMPLE_TOPICS.map((example) => (
+                {EXAMPLE_TOPICS[storyLanguage].map((example) => (
                   <button
                     key={example}
                     type="button"
                     className="chip"
-                    disabled={loading || reviewStep !== null}
+                    disabled={loading || effectiveReviewStep !== null}
                     onClick={() => startWithTopic(example)}
                   >
                     {example}
@@ -1113,7 +1499,7 @@ export function StoryGenerator() {
       </div>
 
       <div ref={resultsRef} id="pipeline-results" className="pipeline-workspace">
-        {failedStep && !loading && !reviewStep ? (
+        {failedStep && !loading && !effectiveReviewStep ? (
           <StepResumeBar
             stepLabel={getStepLabel(failedStep)}
             stepNumber={getStepNumber(failedStep)}
@@ -1124,23 +1510,27 @@ export function StoryGenerator() {
           />
         ) : null}
 
-        {reviewStep && !loading ? (
+        {effectiveReviewStep && !loading ? (
           <StepGateBar
-            stepLabel={reviewStepLabel ?? reviewStep}
-            stepNumber={getStepNumber(reviewStep)}
-            isLastStep={getNextStep(reviewStep) === 'complete'}
+            stepLabel={reviewStepLabel ?? effectiveReviewStep}
+            stepNumber={getStepNumber(effectiveReviewStep)}
+            isLastStep={getNextStep(effectiveReviewStep) === 'complete'}
             description={
               hasMoreVideosToGenerate
-                ? `Scene ${videoScenes.length} of ${orderedImageScenes.length} is ready. Review the video below, regenerate if needed, then generate the next scene.`
-                : undefined
+                ? `Scene ${countUpscaledScenes(videoScenes)} of ${orderedImageScenes.length} is ready at 1080p. Review below, regenerate if needed, then continue.`
+                : isProfessionalMode &&
+                    effectiveReviewStep === 'videos' &&
+                    pendingProfessionalUploadScene
+                  ? `Upload scene ${pendingProfessionalUploadScene.sceneNumber} of ${orderedImageScenes.length}. It will be upscaled to 1080p automatically.`
+                  : undefined
             }
             regenerateLabel={
               hasMoreVideosToGenerate ? 'Regenerate scene' : undefined
             }
             approveLabel={
               hasMoreVideosToGenerate
-                ? `Generate scene ${videoScenes.length + 1} of ${orderedImageScenes.length}`
-                : reviewStep === 'videos'
+                ? `Generate scene ${countUpscaledScenes(videoScenes) + 1} of ${orderedImageScenes.length}`
+                : effectiveReviewStep === 'videos'
                   ? 'Approve videos & continue'
                   : undefined
             }
@@ -1178,7 +1568,7 @@ export function StoryGenerator() {
             title="Idea"
             expanded={expandedSteps[1]}
             onToggle={() => toggleStep(1)}
-            status={getStepStatus('idea', reviewStep, generatingStep, approvedThroughIndex)}
+            status={getStepStatus('idea', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
             <p>{idea}</p>
           </StepPanel>
@@ -1190,7 +1580,7 @@ export function StoryGenerator() {
             title="Story"
             expanded={expandedSteps[2]}
             onToggle={() => toggleStep(2)}
-            status={getStepStatus('story', reviewStep, generatingStep, approvedThroughIndex)}
+            status={getStepStatus('story', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
             <p className="story-copy">{story}</p>
           </StepPanel>
@@ -1203,7 +1593,7 @@ export function StoryGenerator() {
             expanded={expandedSteps[3]}
             onToggle={() => toggleStep(3)}
             summary={`${scriptScenes.length} scene${scriptScenes.length === 1 ? '' : 's'}`}
-            status={getStepStatus('script', reviewStep, generatingStep, approvedThroughIndex)}
+            status={getStepStatus('script', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
             <SceneList scenes={scriptScenes} showPrompts={false} />
           </StepPanel>
@@ -1216,7 +1606,7 @@ export function StoryGenerator() {
             expanded={expandedSteps[4]}
             onToggle={() => toggleStep(4)}
             summary={characterAppearance ? 'Uniform look defined' : 'Defining character'}
-            status={getStepStatus('character', reviewStep, generatingStep, approvedThroughIndex)}
+            status={getStepStatus('character', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
             {characterAppearance ? (
               <div className="character-profile">
@@ -1240,14 +1630,14 @@ export function StoryGenerator() {
                 ? `${promptedScenes.length} prompt${promptedScenes.length === 1 ? '' : 's'} ready`
                 : 'Waiting for prompts'
             }
-            status={getStepStatus('prompts', reviewStep, generatingStep, approvedThroughIndex)}
+            status={getStepStatus('prompts', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
             {promptedScenes.length > 0 ? (
               <SceneList
                 scenes={promptedScenes}
                 showPrompts
                 onRegeneratePrompt={
-                  reviewStep === 'prompts'
+                  effectiveReviewStep === 'prompts'
                     ? regenerateScenePrompt
                     : undefined
                 }
@@ -1270,14 +1660,16 @@ export function StoryGenerator() {
                 ? `${imageScenes.length} image${imageScenes.length === 1 ? '' : 's'} saved locally`
                 : 'Generating images'
             }
-            status={getStepStatus('images', reviewStep, generatingStep, approvedThroughIndex)}
+            status={getStepStatus('images', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
             {imageScenes.length > 0 ? (
               <SceneMediaGallery
                 scenes={imageScenes}
                 mode="images"
                 onRegenerate={
-                  reviewStep === 'images' ? regenerateSceneImage : undefined
+                  effectiveReviewStep === 'images'
+                    ? regenerateSceneImage
+                    : undefined
                 }
                 regeneratingSceneIndex={regeneratingSceneIndex}
               />
@@ -1290,28 +1682,66 @@ export function StoryGenerator() {
         {videoScenes.length > 0 || currentStep === 'videos' ? (
           <StepPanel
             step={7}
-            title="Generated videos"
+            title={
+              isProfessionalMode
+                ? 'Scene videos (1080p)'
+                : 'Scene videos (1080p)'
+            }
             expanded={expandedSteps[7]}
             onToggle={() => toggleStep(7)}
             summary={
-              videoScenes.length > 0
-                ? `${videoScenes.length} video${videoScenes.length === 1 ? '' : 's'} saved locally`
-                : 'Generating videos'
+              countUpscaledScenes(videoScenes) > 0
+                ? `${countUpscaledScenes(videoScenes)} of ${imageScenes.length || videoScenes.length} scene${countUpscaledScenes(videoScenes) === 1 ? '' : 's'} at 1920×1080`
+                : isProfessionalMode
+                  ? 'Upload and upscale'
+                  : 'Generating and upscaling'
             }
-            status={getStepStatus('videos', reviewStep, generatingStep, approvedThroughIndex)}
+            status={getStepStatus('videos', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
-            {videoScenes.length > 0 ? (
+            {isProfessionalMode &&
+            effectiveReviewStep === 'videos' &&
+            pendingProfessionalUploadScene ? (
+              <ProfessionalSceneUpload
+                scene={pendingProfessionalUploadScene}
+                promptScene={
+                  promptedScenes.find(
+                    (entry) =>
+                      entry.sceneNumber ===
+                      pendingProfessionalUploadScene.sceneNumber,
+                  ) ?? pendingProfessionalUploadScene
+                }
+                onUpload={(file) =>
+                  void uploadProfessionalSceneVideo(
+                    nextProfessionalUploadIndex,
+                    file,
+                  )
+                }
+                uploading={
+                  regeneratingSceneIndex === nextProfessionalUploadIndex
+                }
+              />
+            ) : null}
+            {countUpscaledScenes(videoScenes) > 0 ? (
               <SceneMediaGallery
-                scenes={videoScenes}
-                mode="videos"
+                scenes={videoScenes.filter((scene) => scene.upscaledVideoPath)}
+                mode="upscaled"
                 onRegenerate={
-                  reviewStep === 'videos' ? regenerateSceneVideo : undefined
+                  effectiveReviewStep === 'videos'
+                    ? regenerateSceneVideo
+                    : undefined
                 }
                 regeneratingSceneIndex={regeneratingSceneIndex}
               />
+            ) : isProfessionalMode ? (
+              <p className="muted">
+                Generate each clip externally using the scene image and video
+                prompt, then upload the MP4 here. Each upload is upscaled to
+                1080p automatically.
+              </p>
             ) : (
               <p className="muted">
-                Generating scene videos with CogVideoX-5B (image-to-video)...
+                Generating each scene with Wan2.1 I2V, then upscaling to
+                1920×1080...
               </p>
             )}
           </StepPanel>
@@ -1328,13 +1758,15 @@ export function StoryGenerator() {
                 ? `${audioScenes.length} audio track${audioScenes.length === 1 ? '' : 's'} saved locally`
                 : 'Generating narration audio'
             }
-            status={getStepStatus('audio', reviewStep, generatingStep, approvedThroughIndex)}
+            status={getStepStatus('audio', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
             {audioScenes.length > 0 ? (
               <SceneAudioGallery
                 scenes={audioScenes}
                 onRegenerate={
-                  reviewStep === 'audio' ? regenerateSceneAudio : undefined
+                  effectiveReviewStep === 'audio'
+                    ? regenerateSceneAudio
+                    : undefined
                 }
                 regeneratingSceneIndex={regeneratingSceneIndex}
               />
@@ -1358,7 +1790,7 @@ export function StoryGenerator() {
                 ? 'Final story video with narration and burned-in subtitles'
                 : 'Assembling final video with subtitles'
             }
-            status={getStepStatus('assembly', reviewStep, generatingStep, approvedThroughIndex)}
+            status={getStepStatus('assembly', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
             {finalVideoPath ? (
               <div className="final-video-wrap">
@@ -1369,6 +1801,11 @@ export function StoryGenerator() {
                   preload="metadata"
                   className="final-video"
                 />
+                <p className="muted">
+                  <a href={finalVideoPath} download>
+                    Download final video
+                  </a>
+                </p>
               </div>
             ) : (
               <p className="muted">
@@ -1379,19 +1816,26 @@ export function StoryGenerator() {
         ) : null}
       </div>
 
-      {currentStep === 'complete' && !loading && !reviewStep ? (
+      {currentStep === 'complete' && !loading && !effectiveReviewStep ? (
         <div className="complete-message">
           <p>Pipeline complete for "{topic}".</p>
           {finalVideoPath ? (
-            <div className="final-video-wrap">
-              <video
-                src={finalVideoPath}
-                controls
-                playsInline
-                preload="metadata"
-                className="final-video"
-              />
-            </div>
+            <>
+              <div className="final-video-wrap">
+                <video
+                  src={finalVideoPath}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="final-video"
+                />
+              </div>
+              <p className="muted">
+                <a href={finalVideoPath} download>
+                  Download final video
+                </a>
+              </p>
+            </>
           ) : null}
         </div>
       ) : null}
@@ -1522,7 +1966,8 @@ function LoadingOverlay({
   const isSceneStep =
     currentStep === 'prompts' ||
     currentStep === 'images' ||
-    currentStep === 'videos';
+    currentStep === 'videos' ||
+    currentStep === 'audio';
   const scenePercent =
     isSceneStep && totalScenes > 0
       ? Math.round(((sceneProgressIndex + 1) / totalScenes) * 100)
@@ -1618,7 +2063,7 @@ function getLoadingMessage(
     case 'images':
       return `Generating image for scene ${sceneProgressIndex + 1} of ${totalScenes} with FLUX.1-dev...`;
     case 'videos':
-      return `Generating video for scene ${sceneProgressIndex + 1} of ${totalScenes} with CogVideoX...`;
+      return `Generating and upscaling scene ${sceneProgressIndex + 1} of ${totalScenes} to 1080p...`;
     case 'audio':
       return `Generating narration audio for scene ${sceneProgressIndex + 1} of ${totalScenes}...`;
     case 'assembly':
@@ -1887,7 +2332,7 @@ function SceneMediaGallery({
   regeneratingSceneIndex,
 }: {
   scenes: SceneScript[];
-  mode: 'images' | 'videos';
+  mode: 'images' | 'videos' | 'upscaled';
   onRegenerate?: (index: number) => void;
   regeneratingSceneIndex?: number | null;
 }) {
@@ -1900,6 +2345,8 @@ function SceneMediaGallery({
           (entry) => entry.sceneNumber === scene.sceneNumber,
         );
         const isRegenerating = regeneratingSceneIndex === index;
+        const videoSrc =
+          mode === 'upscaled' ? scene.upscaledVideoPath : scene.videoPath;
 
         return (
           <figure key={scene.sceneNumber} className="scene-media-item">
@@ -1911,9 +2358,9 @@ function SceneMediaGallery({
                 loading="lazy"
               />
             ) : null}
-            {mode === 'videos' && scene.videoPath ? (
+            {(mode === 'videos' || mode === 'upscaled') && videoSrc ? (
               <video
-                src={scene.videoPath}
+                src={videoSrc}
                 poster={scene.imagePath}
                 controls
                 playsInline
@@ -1937,6 +2384,73 @@ function SceneMediaGallery({
           </figure>
         );
       })}
+    </div>
+  );
+}
+
+function ProfessionalSceneUpload({
+  scene,
+  promptScene,
+  onUpload,
+  uploading,
+}: {
+  scene: SceneScript;
+  promptScene: SceneScript;
+  onUpload: (file: File) => void;
+  uploading: boolean;
+}) {
+  return (
+    <div className="professional-upload panel">
+      <div className="professional-upload-header">
+        <strong>Scene {scene.sceneNumber} upload</strong>
+        <span className="muted">{scene.duration}s clip</span>
+      </div>
+      {scene.imagePath ? (
+        <div className="scene-image-wrap">
+          <img
+            src={scene.imagePath}
+            alt={`Reference image for scene ${scene.sceneNumber}`}
+            className="scene-image"
+          />
+        </div>
+      ) : null}
+      {promptScene.videoPrompt ? (
+        <div className="scene-field highlight">
+          <div className="prompt-copy-row">
+            <strong>External video prompt</strong>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                void navigator.clipboard.writeText(promptScene.videoPrompt ?? '');
+              }}
+            >
+              Copy prompt
+            </button>
+          </div>
+          <p>{promptScene.videoPrompt}</p>
+          <p className="muted">
+            Use this prompt with the scene image in Kling AI, Google Veo, or
+            Runway, then upload the exported MP4 below.
+          </p>
+        </div>
+      ) : null}
+      <label className="professional-upload-label">
+        <span>Upload scene video (MP4, WebM, or MOV)</span>
+        <input
+          type="file"
+          accept="video/mp4,video/webm,video/quicktime,video/*"
+          disabled={uploading}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              onUpload(file);
+              event.target.value = '';
+            }
+          }}
+        />
+      </label>
+      {uploading ? <p className="muted">Uploading video...</p> : null}
     </div>
   );
 }

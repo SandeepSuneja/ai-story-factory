@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import type { SceneScript } from "../content-state";
+import type { SceneScript, StoryLanguage } from "../content-state";
+import { languageOutputRule } from "../language";
 import { QwenService } from "../services/qwen.service";
 
 const SCRIPT_MAX_TOKENS = 4096;
@@ -133,7 +134,21 @@ function parseJsonFromModel(text: string): SceneScript[] {
   }
 }
 
-function buildScriptPrompt(story: string, strict = false): string {
+function buildScriptPrompt(
+  story: string,
+  language: StoryLanguage,
+  strict = false,
+): string {
+  const languageRule = languageOutputRule(language);
+  const narrationField =
+    language === "hi"
+      ? "spoken narration line in Hindi (Devanagari)"
+      : "spoken line for the scene";
+  const visualField =
+    language === "hi"
+      ? "what appears on screen, in Hindi (Devanagari)"
+      : "what appears on screen";
+
   const rules = strict
     ? `
 Rules:
@@ -142,6 +157,7 @@ Rules:
 - Each scene duration must be 3 to 6 seconds.
 - Keep each narration under 12 words.
 - Keep each visualDescription under 12 words.
+- Each visualDescription must describe ONE static photographable frame (no camera moves, morphing, on-screen text, or multiple character copies).
 - Do not truncate the JSON. Always close every string and end with ].`
     : `
 Rules:
@@ -150,18 +166,21 @@ Rules:
 - Each scene duration must be 3 to ${MAX_SCENE_DURATION_SECONDS} seconds.
 - Keep each narration under 18 words.
 - Keep each visualDescription under 18 words.
+- Each visualDescription must describe ONE static photographable frame (no camera moves, morphing, on-screen text, or multiple character copies).
 - Escape double quotes inside strings.
 - Do not truncate the JSON. Always close every string and end with ].`;
 
   return `Convert the story into short video scenes.${rules}
+${languageRule}
+- narration and visualDescription must follow the language rule above.
 
 Use this exact shape:
 [
   {
     "sceneNumber": 1,
     "duration": 6,
-    "narration": "spoken line for the scene",
-    "visualDescription": "what appears on screen"
+    "narration": "${narrationField}",
+    "visualDescription": "${visualField}"
   }
 ]
 
@@ -174,10 +193,13 @@ ${story}
 export class ScriptAgent {
   constructor(private readonly ai: QwenService) {}
 
-  async execute(story: string): Promise<SceneScript[]> {
+  async execute(
+    story: string,
+    language: StoryLanguage = "en",
+  ): Promise<SceneScript[]> {
     const attempts = [
-      buildScriptPrompt(story, false),
-      `${buildScriptPrompt(story, true)}
+      buildScriptPrompt(story, language, false),
+      `${buildScriptPrompt(story, language, true)}
 
 Your previous answer was invalid or truncated JSON. Reply again with ONLY the JSON array.`,
     ];

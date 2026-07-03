@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { join } from "path";
-import { inferenceFetch } from "./inference-fetch";
+import { fluxInferenceFetch } from "./inference-fetch";
 
 interface FluxGenerateResponse {
   filename: string;
@@ -20,7 +20,7 @@ export class FluxService {
   }
 
   async generateImage(prompt: string, sceneNumber: number): Promise<string> {
-    const response = await inferenceFetch(`${this.serviceUrl}/generate`, {
+    const response = await fluxInferenceFetch(`${this.serviceUrl}/generate`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

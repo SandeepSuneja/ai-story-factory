@@ -1,3 +1,7 @@
+export type StoryLanguage = 'en' | 'hi';
+
+export type VideoGenerationMode = 'local' | 'professional';
+
 export interface SceneScript {
   sceneNumber: number;
   narration: string;
@@ -8,11 +12,13 @@ export interface SceneScript {
   characterAppearance?: string;
   imagePath?: string;
   videoPath?: string;
+  upscaledVideoPath?: string;
   audioPath?: string;
 }
 
 export interface GenerateIdeaRequest {
   topic: string;
+  storyLanguage?: StoryLanguage;
 }
 
 export interface GenerateIdeaResponse {
@@ -21,6 +27,7 @@ export interface GenerateIdeaResponse {
 
 export interface GenerateStoryRequest {
   idea: string;
+  storyLanguage?: StoryLanguage;
 }
 
 export interface GenerateStoryResponse {
@@ -29,6 +36,7 @@ export interface GenerateStoryResponse {
 
 export interface GenerateScriptRequest {
   story: string;
+  storyLanguage?: StoryLanguage;
 }
 
 export interface GenerateScriptResponse {
@@ -38,6 +46,7 @@ export interface GenerateScriptResponse {
 export interface GenerateCharacterProfileRequest {
   story: string;
   script: SceneScript[];
+  storyLanguage?: StoryLanguage;
 }
 
 export interface GenerateCharacterProfileResponse {
@@ -47,6 +56,13 @@ export interface GenerateCharacterProfileResponse {
 export interface GeneratePromptRequest {
   scene: SceneScript;
   characterAppearance: string;
+  videoMode?: VideoGenerationMode;
+  storyLanguage?: StoryLanguage;
+}
+
+export interface UploadVideoResponse {
+  filename: string;
+  videoPath: string;
 }
 
 export interface GeneratePromptResponse {
@@ -57,12 +73,40 @@ export interface GenerateImageRequest {
   scene: SceneScript;
 }
 
+export interface StartImageJobResponse {
+  jobId: string;
+  status: string;
+  sceneNumber: number;
+}
+
+export interface ImageJobStatusResponse {
+  id: string;
+  status: string;
+  sceneNumber: number;
+  scene?: SceneScript;
+  error?: string;
+}
+
 export interface GenerateImageResponse {
   scene: SceneScript;
 }
 
 export interface GenerateVideoRequest {
   scene: SceneScript;
+}
+
+export interface StartVideoJobResponse {
+  jobId: string;
+  status: string;
+  sceneNumber: number;
+}
+
+export interface VideoJobStatusResponse {
+  id: string;
+  status: string;
+  sceneNumber: number;
+  scene?: SceneScript;
+  error?: string;
 }
 
 export interface GenerateVideoResponse {
@@ -82,8 +126,17 @@ export type PipelineStep =
   | 'assembly'
   | 'complete';
 
+export interface UpscaleVideoRequest {
+  scene: SceneScript;
+}
+
+export interface UpscaleVideoResponse {
+  scene: SceneScript;
+}
+
 export interface GenerateAudioRequest {
   scene: SceneScript;
+  storyLanguage?: StoryLanguage;
 }
 
 export interface GenerateAudioResponse {

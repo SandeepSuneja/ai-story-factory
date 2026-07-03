@@ -15,6 +15,7 @@
     "flux:dev": "python flux-service/server.py",
     "qwen:dev": "python qwen-service/server.py",
     "hunyuan:dev": "python hunyuan-service/server.py",
+    "upscale:dev": "python upscale-service/server.py",
     "tts:dev": "python tts-service/server.py",
     "assembly:dev": "python assembly-service/server.py",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",

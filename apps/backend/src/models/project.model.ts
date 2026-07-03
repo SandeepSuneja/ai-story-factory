@@ -1,7 +1,14 @@
-import type { PipelineStep, SceneScript } from '../content-state';
+import type {
+  PipelineStep,
+  SceneScript,
+  StoryLanguage,
+  VideoGenerationMode,
+} from '../content-state';
 
 export interface ProjectState {
   topic: string;
+  storyLanguage: StoryLanguage;
+  videoGenerationMode: VideoGenerationMode;
   currentStep: PipelineStep;
   reviewStep: PipelineStep | null;
   idea: string | null;
@@ -48,6 +55,8 @@ export class UpdateProjectRequestDto {
 export function createEmptyProjectState(): ProjectState {
   return {
     topic: '',
+    storyLanguage: 'en',
+    videoGenerationMode: 'local',
     currentStep: 'topic',
     reviewStep: null,
     idea: null,

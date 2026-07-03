@@ -1,3 +1,7 @@
+export type StoryLanguage = 'en' | 'hi';
+
+export type VideoGenerationMode = 'local' | 'professional';
+
 export type PipelineStep =
   | 'topic'
   | 'idea'
@@ -28,5 +32,6 @@ export interface SceneScript {
   characterAppearance?: string;
   imagePath?: string;
   videoPath?: string;
+  upscaledVideoPath?: string;
   audioPath?: string;
 }

@@ -23,6 +23,7 @@ AUDIO_DIR = Path(
 BACKEND = os.environ.get("TTS_BACKEND", "auto").lower()
 KOKORO_VOICE = os.environ.get("TTS_KOKORO_VOICE", "af_heart")
 EDGE_VOICE = os.environ.get("TTS_EDGE_VOICE", "en-US-AriaNeural")
+EDGE_VOICE_HI = os.environ.get("TTS_EDGE_VOICE_HI", "hi-IN-SwaraNeural")
 SAMPLE_RATE = int(os.environ.get("TTS_SAMPLE_RATE", "24000"))
 FFMPEG = os.environ.get("FFMPEG_PATH") or imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -72,28 +73,45 @@ def synthesize_kokoro(text: str, output_path: Path) -> None:
     sf.write(str(output_path), waveform, SAMPLE_RATE)
 
 
-async def synthesize_edge(text: str, output_path: Path) -> None:
+async def synthesize_edge(
+    text: str,
+    output_path: Path,
+    voice: str = EDGE_VOICE,
+) -> None:
     import edge_tts
 
-    communicate = edge_tts.Communicate(text, EDGE_VOICE)
+    communicate = edge_tts.Communicate(text, voice)
     await communicate.save(str(output_path))
 
 
-def synthesize_with_backend(text: str, output_path: Path) -> None:
+def resolve_request_backend(language: str) -> tuple[str, str]:
+    lang = language.strip().lower()
+    if lang == "hi":
+        return "edge", EDGE_VOICE_HI
     if active_backend == "kokoro":
+        return "kokoro", KOKORO_VOICE
+    return "edge", EDGE_VOICE
+
+
+def synthesize_with_backend(
+    text: str,
+    output_path: Path,
+    language: str = "en",
+) -> tuple[str, str]:
+    backend, voice = resolve_request_backend(language)
+
+    if backend == "kokoro":
         synthesize_kokoro(text, output_path)
-        return
+        return backend, KOKORO_VOICE
 
-    if active_backend == "edge":
-        asyncio.run(synthesize_edge(text, output_path))
-        return
-
-    raise RuntimeError(f"Unsupported TTS backend: {active_backend}")
+    asyncio.run(synthesize_edge(text, output_path, voice))
+    return backend, voice
 
 
 class GenerateAudioRequest(BaseModel):
     text: str = Field(min_length=1)
     scene_number: int = Field(ge=1)
+    language: str = Field(default="en")
 
 
 class GenerateAudioResponse(BaseModel):
@@ -156,12 +174,17 @@ def generate_audio(request: GenerateAudioRequest) -> GenerateAudioResponse:
     if not text:
         raise HTTPException(status_code=400, detail="Text is empty")
 
-    extension = ".wav" if active_backend == "kokoro" else ".mp3"
+    backend_for_request, _voice = resolve_request_backend(request.language)
+    extension = ".wav" if backend_for_request == "kokoro" else ".mp3"
     filename = f"scene-{request.scene_number}-{uuid.uuid4().hex}{extension}"
     output_path = AUDIO_DIR / filename
 
     try:
-        synthesize_with_backend(text, output_path)
+        backend_used, _voice_used = synthesize_with_backend(
+            text,
+            output_path,
+            request.language,
+        )
     except Exception as exc:
         logger.exception("TTS failed for scene %s", request.scene_number)
         if output_path.exists():
@@ -176,7 +199,7 @@ def generate_audio(request: GenerateAudioRequest) -> GenerateAudioResponse:
     return GenerateAudioResponse(
         filename=filename,
         audioPath=f"/audio/{filename}",
-        backend=active_backend,
+        backend=backend_used,
         durationSeconds=duration,
     )
 
