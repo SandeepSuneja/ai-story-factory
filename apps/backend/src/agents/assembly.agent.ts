@@ -29,11 +29,6 @@ export class AssemblyAgent {
           `Scene ${scene.sceneNumber} audio is required before assembly`,
         );
       }
-      if (!scene.narration?.trim()) {
-        throw new Error(
-          `Scene ${scene.sceneNumber} narration is required for subtitles`,
-        );
-      }
     }
 
     return this.assembly.assembleFinalVideo(orderedScenes, projectName);

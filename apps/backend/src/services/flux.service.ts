@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { join } from "path";
+import type { SeriesOrientation } from "../content-state";
 import { fluxInferenceFetch } from "./inference-fetch";
+import { getGenerationDimensions } from "../visual-style";
 
 interface FluxGenerateResponse {
   filename: string;
@@ -19,7 +21,12 @@ export class FluxService {
     );
   }
 
-  async generateImage(prompt: string, sceneNumber: number): Promise<string> {
+  async generateImage(
+    prompt: string,
+    sceneNumber: number,
+    orientation: SeriesOrientation = "landscape",
+  ): Promise<string> {
+    const { width, height } = getGenerationDimensions(orientation);
     const response = await fluxInferenceFetch(`${this.serviceUrl}/generate`, {
       method: "POST",
       headers: {
@@ -28,6 +35,9 @@ export class FluxService {
       body: JSON.stringify({
         prompt,
         scene_number: sceneNumber,
+        orientation,
+        width,
+        height,
       }),
     });
 

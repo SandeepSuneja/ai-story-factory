@@ -1,4 +1,4 @@
-import type { SceneScript, StoryLanguage, VideoGenerationMode } from "../content-state";
+import type { SceneScript, StoryCharacter, StoryLanguage, SeriesVisualStyle, VideoGenerationMode } from "../content-state";
 
 export class GenerateIdeaRequestDto {
   topic: string;
@@ -31,17 +31,23 @@ export class GenerateCharacterProfileRequestDto {
   story: string;
   script: SceneScript[];
   storyLanguage?: StoryLanguage;
+  seriesId?: string | null;
+  existingCharacters?: StoryCharacter[];
 }
 
 export class GenerateCharacterProfileResponseDto {
-  characterAppearance: string;
+  characters: StoryCharacter[];
+  script: SceneScript[];
+  reusedCharacters: string[];
+  newCharacters: StoryCharacter[];
 }
 
 export class GeneratePromptRequestDto {
   scene: SceneScript;
-  characterAppearance: string;
+  characters: StoryCharacter[];
   videoMode?: VideoGenerationMode;
   storyLanguage?: StoryLanguage;
+  visualStyle?: SeriesVisualStyle;
 }
 
 export class UploadVideoResponseDto {
@@ -55,6 +61,7 @@ export class GeneratePromptResponseDto {
 
 export class GenerateImageRequestDto {
   scene: SceneScript;
+  visualStyle?: SeriesVisualStyle;
 }
 
 export class StartImageJobResponseDto {
@@ -77,6 +84,7 @@ export class GenerateImageResponseDto {
 
 export class GenerateVideoRequestDto {
   scene: SceneScript;
+  visualStyle?: SeriesVisualStyle;
 }
 
 export class StartVideoJobResponseDto {
@@ -99,6 +107,7 @@ export class GenerateVideoResponseDto {
 
 export class UpscaleVideoRequestDto {
   scene: SceneScript;
+  visualStyle?: SeriesVisualStyle;
 }
 
 export class UpscaleVideoResponseDto {
@@ -107,6 +116,7 @@ export class UpscaleVideoResponseDto {
 
 export class GenerateAudioRequestDto {
   scene: SceneScript;
+  characters: StoryCharacter[];
   storyLanguage?: StoryLanguage;
 }
 

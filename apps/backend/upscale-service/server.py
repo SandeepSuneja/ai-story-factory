@@ -32,6 +32,9 @@ app = FastAPI(title="Video Upscale Service")
 class UpscaleVideoRequest(BaseModel):
     video_filename: str = Field(min_length=1)
     scene_number: int = Field(ge=1)
+    orientation: str = Field(default="landscape")
+    target_width: int | None = Field(default=None, ge=480, le=3840)
+    target_height: int | None = Field(default=None, ge=480, le=3840)
 
 
 class UpscaleVideoResponse(BaseModel):
@@ -66,17 +69,30 @@ def probe_video(path: Path) -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
-def build_upscale_filter(source_width: int, source_height: int) -> str:
+def resolve_target_dimensions(request: UpscaleVideoRequest) -> tuple[int, int]:
+    if request.target_width and request.target_height:
+        return request.target_width, request.target_height
+    if request.orientation == "portrait":
+        return 1080, 1920
+    return TARGET_WIDTH, TARGET_HEIGHT
+
+
+def build_upscale_filter(
+    source_width: int,
+    source_height: int,
+    target_width: int,
+    target_height: int,
+) -> str:
     if source_width <= 0 or source_height <= 0:
         return (
-            f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:flags=lanczos,"
-            f"pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2,"
+            f"scale={target_width}:{target_height}:flags=lanczos,"
+            f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2,"
             "setsar=1,unsharp=5:5:0.8:5:5:0.0"
         )
 
     return (
-        f"scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=decrease:flags=lanczos,"
-        f"pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black,"
+        f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease:flags=lanczos,"
+        f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:black,"
         "setsar=1,unsharp=5:5:0.8:5:5:0.0"
     )
 
@@ -111,21 +127,30 @@ def upscale_video(request: UpscaleVideoRequest) -> UpscaleVideoResponse:
         )
 
     source_width, source_height = probe_video(source_path)
+    target_width, target_height = resolve_target_dimensions(request)
     filename = f"scene-{request.scene_number}-{uuid.uuid4().hex}-1080p.mp4"
     output_path = VIDEO_DIR / filename
 
     try:
-        if source_height >= MIN_UPSCALE_HEIGHT and source_width >= TARGET_WIDTH - 200:
+        if (
+            source_height >= MIN_UPSCALE_HEIGHT
+            and source_width >= target_width - 200
+        ):
             logger.info(
                 "Scene %s already %sx%s — re-encoding to %sx%s",
                 request.scene_number,
                 source_width,
                 source_height,
-                TARGET_WIDTH,
-                TARGET_HEIGHT,
+                target_width,
+                target_height,
             )
 
-        vf = build_upscale_filter(source_width, source_height)
+        vf = build_upscale_filter(
+            source_width,
+            source_height,
+            target_width,
+            target_height,
+        )
         run_ffmpeg(
             [
                 "-i",
@@ -167,8 +192,8 @@ def upscale_video(request: UpscaleVideoRequest) -> UpscaleVideoResponse:
     return UpscaleVideoResponse(
         filename=filename,
         videoPath=f"/videos/{filename}",
-        width=out_width or TARGET_WIDTH,
-        height=out_height or TARGET_HEIGHT,
+        width=out_width or target_width,
+        height=out_height or target_height,
     )
 
 

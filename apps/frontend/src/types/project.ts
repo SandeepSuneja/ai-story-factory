@@ -1,15 +1,21 @@
-import type { PipelineStep, SceneScript, StoryLanguage, VideoGenerationMode } from './content';
-
+import type { PipelineStep, SceneScript, StoryCharacter, StoryLanguage, VideoGenerationMode } from './content';
+import type { SeriesVisualStyle } from './series';
+import { mergeVisualStyle } from './series';
+import { resolveProjectCharacters } from '../utils/characters';
 export interface ProjectState {
   topic: string;
   storyLanguage: StoryLanguage;
   videoGenerationMode: VideoGenerationMode;
-  currentStep: PipelineStep;
-  reviewStep: PipelineStep | null;
+  seriesId?: string | null;
+  sourceProjectId?: string | null;
+  visualStyle?: SeriesVisualStyle;
+  currentStep: PipelineStep;  reviewStep: PipelineStep | null;
   idea: string | null;
   story: string | null;
   scriptScenes: SceneScript[];
-  characterAppearance: string | null;
+  characters: StoryCharacter[];
+  /** @deprecated Legacy single-character field */
+  characterAppearance?: string | null;
   promptedScenes: SceneScript[];
   imageScenes: SceneScript[];
   videoScenes: SceneScript[];
@@ -24,6 +30,7 @@ export interface ProjectState {
 export interface Project {
   id: string;
   name: string;
+  seriesId?: string | null;
   createdAt: string;
   updatedAt: string;
   state: ProjectState;
@@ -33,12 +40,14 @@ export interface ProjectSummary {
   id: string;
   name: string;
   topic: string;
+  seriesId?: string | null;
   currentStep: PipelineStep;
   updatedAt: string;
 }
 
 export interface CreateProjectRequest {
   name?: string;
+  seriesId?: string | null;
   state?: Partial<ProjectState>;
 }
 
@@ -60,6 +69,15 @@ export function mergeProjectState(partial?: Partial<ProjectState>): ProjectState
   return {
     ...defaults,
     ...partial,
+    videoGenerationMode: partial.videoGenerationMode ?? defaults.videoGenerationMode,
+    seriesId: partial.seriesId ?? defaults.seriesId,
+    sourceProjectId: partial.sourceProjectId ?? defaults.sourceProjectId,
+    visualStyle: mergeVisualStyle(partial.visualStyle ?? defaults.visualStyle),
+    characters: resolveProjectCharacters({
+      characters: partial.characters,
+      characterAppearance: partial.characterAppearance,
+      storyLanguage: partial.storyLanguage ?? defaults.storyLanguage,
+    }),
     scriptScenes: partial.scriptScenes ?? defaults.scriptScenes,
     promptedScenes: partial.promptedScenes ?? defaults.promptedScenes,
     imageScenes: partial.imageScenes ?? defaults.imageScenes,
@@ -80,12 +98,15 @@ export function createEmptyProjectState(): ProjectState {
     topic: '',
     storyLanguage: 'en',
     videoGenerationMode: 'local',
+    seriesId: null,
+    sourceProjectId: null,
+    visualStyle: mergeVisualStyle(),
     currentStep: 'topic',
     reviewStep: null,
     idea: null,
     story: null,
     scriptScenes: [],
-    characterAppearance: null,
+    characters: [],
     promptedScenes: [],
     imageScenes: [],
     videoScenes: [],
@@ -102,6 +123,7 @@ export function createEmptyProjectState(): ProjectState {
       7: false,
       8: false,
       9: false,
+      10: false,
     },
     failedStep: null,
     pipelineError: null,
@@ -120,6 +142,8 @@ export function getStepLabel(step: PipelineStep): string {
       return 'Script';
     case 'character':
       return 'Character';
+    case 'visual':
+      return 'Visual settings';
     case 'prompts':
       return 'Prompts';
     case 'images':

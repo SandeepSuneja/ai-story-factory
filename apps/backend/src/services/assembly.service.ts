@@ -86,6 +86,11 @@ export class AssemblyService {
         ),
         audio_filename: this.resolveMediaFilename(scene.audioPath ?? ""),
         narration: scene.narration,
+        subtitle_cues: scene.subtitleCues?.map((cue) => ({
+          start: cue.start,
+          end: cue.end,
+          text: cue.text,
+        })),
         duration_seconds: scene.duration,
       })),
     };

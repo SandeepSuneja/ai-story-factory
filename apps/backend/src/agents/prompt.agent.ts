@@ -1,9 +1,28 @@
 import { Injectable } from "@nestjs/common";
-import type { SceneScript, StoryLanguage, VideoGenerationMode } from "../content-state";
+import type {
+  SceneScript,
+  SeriesVisualStyle,
+  StoryCharacter,
+  StoryLanguage,
+  VideoGenerationMode,
+} from "../content-state";
+import {
+  buildSpeakingMotionHint,
+  buildTalkingImageHint,
+  compressCharacterAppearance,
+  formatCharactersForPrompt,
+  formatVisualStyleForPrompt,
+  getCharactersForScene,
+  getSpeakingCharacters,
+} from "../characters";
 import {
   imagePromptLanguageRule,
   videoPromptLanguageRule,
 } from "../language";
+import {
+  imagePromptAnimationSuffix,
+  mergeVisualStyle,
+} from "../visual-style";
 import { QwenService } from "../services/qwen.service";
 
 export interface ScenePrompts {
@@ -14,7 +33,7 @@ export interface ScenePrompts {
 const PROMPT_MAX_TOKENS = 1024;
 const MAX_VIDEO_WORDS = 45;
 const MAX_PRO_VIDEO_WORDS = 100;
-const MAX_IMAGE_WORDS = 50;
+const MAX_IMAGE_WORDS = 55;
 
 function stripModelWrappers(text: string): string {
   let cleaned = text.trim();
@@ -69,11 +88,39 @@ function sanitizeVideoPrompt(text: string, duration: number): string {
     return motionHint;
   }
 
-  if (!/\b(camera|pan|dolly|zoom|track|tilt|crane|push|pull|drift|glide|move|motion|wind|blink|breath|turn|step|walk|glow|flicker|pulse|sway)\b/i.test(prompt)) {
+  if (!/\b(camera|pan|dolly|zoom|track|tilt|crane|push|pull|drift|glide|move|motion|wind|blink|breath|turn|step|walk|glow|flicker|pulse|sway|speak|lip|mouth|jaw|talk)\b/i.test(prompt)) {
     prompt = `${motionHint} ${prompt}`;
   }
 
   return prompt;
+}
+
+function enhanceVideoPromptForTalking(
+  prompt: string,
+  scene: SceneScript,
+  maxWords: number,
+): string {
+  const speakingHint = buildSpeakingMotionHint(scene);
+  if (!speakingHint) {
+    return prompt;
+  }
+
+  const combined = `${prompt} ${speakingHint}`.replace(/\s+/g, " ").trim();
+  return clampWords(combined, maxWords);
+}
+
+function enhanceImagePromptForTalking(
+  prompt: string,
+  scene: SceneScript,
+  maxWords: number,
+): string {
+  const talkingHint = buildTalkingImageHint(scene);
+  if (!talkingHint) {
+    return prompt;
+  }
+
+  const combined = `${prompt} ${talkingHint}`.replace(/\s+/g, " ").trim();
+  return clampWords(combined, maxWords);
 }
 
 function sanitizeProfessionalVideoPrompt(text: string, duration: number): string {
@@ -99,31 +146,33 @@ function stripImageBoilerplate(text: string): string {
     .trim();
 }
 
-function compressCharacterAppearance(characterAppearance: string): string {
-  const trimmed = characterAppearance.trim();
-  const firstSentence = trimmed.split(/[.!?]/)[0]?.trim() ?? trimmed;
-  return clampWords(firstSentence, 18);
-}
-
 function sanitizeImagePrompt(
   text: string,
   scene: SceneScript,
-  characterAppearance: string,
+  sceneCharacters: StoryCharacter[],
 ): string {
   let prompt = stripImageBoilerplate(text);
   if (!prompt) {
-    prompt = stripImageBoilerplate(
-      `${scene.visualDescription}. ${compressCharacterAppearance(characterAppearance)}`,
-    );
+    const tags = sceneCharacters
+      .map(
+        (character) =>
+          `${character.name}: ${compressCharacterAppearance(character.appearance)}`,
+      )
+      .join("; ");
+    prompt = stripImageBoilerplate(`${scene.visualDescription}. ${tags}`);
   }
 
-  return clampWords(prompt, MAX_IMAGE_WORDS);
+  return enhanceImagePromptForTalking(
+    clampWords(prompt, MAX_IMAGE_WORDS),
+    scene,
+    MAX_IMAGE_WORDS,
+  );
 }
 
 function parsePromptPair(
   raw: unknown,
   scene: SceneScript,
-  characterAppearance: string,
+  sceneCharacters: StoryCharacter[],
   videoMode: VideoGenerationMode,
 ): ScenePrompts {
   if (!raw || typeof raw !== "object") {
@@ -134,15 +183,20 @@ function parsePromptPair(
   const imagePrompt = sanitizeImagePrompt(
     String(value.imagePrompt ?? ""),
     scene,
-    characterAppearance,
+    sceneCharacters,
   );
-  const videoPrompt =
+  const rawVideoPrompt =
     videoMode === "professional"
       ? sanitizeProfessionalVideoPrompt(
           String(value.videoPrompt ?? ""),
           scene.duration,
         )
       : sanitizeVideoPrompt(String(value.videoPrompt ?? ""), scene.duration);
+  const videoPrompt = enhanceVideoPromptForTalking(
+    rawVideoPrompt,
+    scene,
+    videoMode === "professional" ? MAX_PRO_VIDEO_WORDS : MAX_VIDEO_WORDS,
+  );
 
   if (!imagePrompt || !videoPrompt) {
     throw new Error("Prompt model output is missing imagePrompt or videoPrompt.");
@@ -151,12 +205,29 @@ function parsePromptPair(
   return { imagePrompt, videoPrompt };
 }
 
+function formatSceneDialogue(scene: SceneScript): string {
+  if (!Array.isArray(scene.dialogue) || scene.dialogue.length === 0) {
+    return scene.narration;
+  }
+
+  return scene.dialogue
+    .map((line) => `${line.speaker ?? line.characterId}: ${line.text}`)
+    .join("\n");
+}
+
 function buildPromptRequest(
   scene: SceneScript,
-  characterAppearance: string,
+  characters: StoryCharacter[],
   videoMode: VideoGenerationMode,
   language: StoryLanguage,
+  visualStyle?: SeriesVisualStyle,
 ): string {
+  const sceneCharacters = getCharactersForScene(scene, characters);
+  const characterBlock = formatCharactersForPrompt(sceneCharacters);
+  const resolvedStyle = mergeVisualStyle(visualStyle);
+  const seriesStyleBlock = formatVisualStyleForPrompt(resolvedStyle);
+  const animationSuffix = imagePromptAnimationSuffix(resolvedStyle.animationStyle);
+
   const videoPromptBlock =
     videoMode === "professional"
       ? `VIDEO PROMPT (Kling AI / Google Veo / Runway — image-to-video):
@@ -174,7 +245,17 @@ function buildPromptRequest(
 - Do NOT repeat character appearance, clothing, or scene layout (the input image already shows them)
 - Do NOT request: morphing worlds, dissolving cities, explosions, clones/duplicates appearing, on-screen text, new objects appearing, or major scene changes
 - Match clip length (${scene.duration}s): use slow, gentle, continuous motion; no fast cuts or complex choreography
-- Prefer concrete verbs: slow dolly in, gentle pan left, soft static flicker, subtle breathing, eyes blink, hair sways, light pulses`;
+- Prefer concrete verbs: slow dolly in, gentle pan left, soft static flicker, subtle breathing, eyes blink, hair sways, light pulses
+- When characters speak in the scene dialogue, include subtle lip movement and natural jaw motion for the speaking character(s)`;
+
+  const speakingNames = getSpeakingCharacters(scene);
+  const talkingRules =
+    speakingNames.length > 0
+      ? `
+Talking characters in this scene: ${speakingNames.join(", ")}.
+- imagePrompt: show speaking characters with engaged expressions and mouths slightly open mid-conversation
+- videoPrompt: include subtle lip sync, jaw motion, and small conversational gestures for whoever is speaking`
+      : "";
 
   return `Create two prompts for scene ${scene.sceneNumber} of a short film pipeline.
 
@@ -189,19 +270,23 @@ ${videoPromptLanguageRule(language, videoMode)}
 
 IMAGE PROMPT (FLUX — static keyframe, CLIP max 77 tokens):
 - Maximum ${MAX_IMAGE_WORDS} words total — shorter is better
-- Structure: scene action first, then a brief character tag (hair + outfit only, ~10 words), then lighting/mood (~5 words)
-- Summarize character appearance; do NOT paste the full character sheet
-- Do NOT include resolution, aspect ratio, or "832x480" (the pipeline sets size)
+- Structure: scene action first, then brief tags for every visible character (name + hair + outfit), then lighting/mood (~5 words)
+- Summarize each character appearance; do NOT paste full character sheets
+- Include every visible character from the scene in the imagePrompt
+- Render as ${animationSuffix}
+- Do NOT use live-action, photorealistic, or documentary language
+- Do NOT include resolution, aspect ratio, or pixel dimensions (the pipeline sets size from orientation)
 - Do NOT describe camera movement or animation
-- Avoid on-screen text, subtitles, split screens, or multiple copies of the character
+- Avoid on-screen text, subtitles, split screens, or duplicate clones of the same character
+${talkingRules}
 
 ${videoPromptBlock}
 
-Character appearance (use in imagePrompt only):
-${characterAppearance}
+${seriesStyleBlock ? `Series visual consistency (apply to imagePrompt composition):\n${seriesStyleBlock}\n` : ""}Characters in this scene (use in imagePrompt only):
+${characterBlock}
 
-Scene narration:
-${scene.narration}
+Scene dialogue:
+${formatSceneDialogue(scene)}
 
 Scene visual (single frame to illustrate):
 ${scene.visualDescription}
@@ -212,12 +297,22 @@ Scene duration: ${scene.duration} seconds`;
 function buildFallbackVideoPrompt(
   scene: SceneScript,
   videoMode: VideoGenerationMode,
+  visualStyle?: SeriesVisualStyle,
 ): string {
+  const resolvedStyle = mergeVisualStyle(visualStyle);
+  const animatedHint =
+    resolvedStyle.animationStyle === "3d"
+      ? "Smooth 3D animated motion."
+      : "Smooth 2D animated motion.";
   const visual = scene.visualDescription.trim();
 
   if (videoMode === "professional") {
-    return clampWords(
-      `Cinematic ${scene.duration}-second shot from the still image. ${visual}. Slow dolly in with dramatic lighting, atmospheric depth, and smooth natural motion.`,
+    return enhanceVideoPromptForTalking(
+      clampWords(
+        `${animatedHint} Cinematic ${scene.duration}-second shot from the still image. ${visual}. Slow dolly in with dramatic lighting, atmospheric depth, and smooth natural motion.`,
+        MAX_PRO_VIDEO_WORDS,
+      ),
+      scene,
       MAX_PRO_VIDEO_WORDS,
     );
   }
@@ -228,28 +323,54 @@ function buildFallbackVideoPrompt(
       : "Slow smooth continuous motion.";
 
   if (/static|flicker|pixel/i.test(visual)) {
-    return `${durationHint} Gentle camera push-in while pixel static softly flickers across the scene.`;
+    return enhanceVideoPromptForTalking(
+      `${durationHint} Gentle camera push-in while pixel static softly flickers across the scene.`,
+      scene,
+      MAX_VIDEO_WORDS,
+    );
   }
   if (/walk/i.test(visual)) {
-    return `${durationHint} Slow tracking shot as the subject walks forward with natural movement.`;
+    return enhanceVideoPromptForTalking(
+      `${durationHint} Slow tracking shot as the subject walks forward with natural movement.`,
+      scene,
+      MAX_VIDEO_WORDS,
+    );
   }
   if (/stand|frozen|still/i.test(visual)) {
-    return `${durationHint} Subtle push-in; subject holds still with slight breathing and soft ambient light shift.`;
+    return enhanceVideoPromptForTalking(
+      `${durationHint} Subtle push-in; subject holds still with slight breathing and soft ambient light shift.`,
+      scene,
+      MAX_VIDEO_WORDS,
+    );
   }
 
-  return `${durationHint} Slow cinematic push-in with natural ambient movement.`;
+  const base = `${durationHint} Slow cinematic push-in with natural ambient movement.`;
+  return enhanceVideoPromptForTalking(base, scene, MAX_VIDEO_WORDS);
 }
 
 function buildFallbackImagePrompt(
   scene: SceneScript,
-  characterAppearance: string,
+  sceneCharacters: StoryCharacter[],
+  visualStyle?: SeriesVisualStyle,
 ): string {
-  return clampWords(
-    [
-      scene.visualDescription,
-      compressCharacterAppearance(characterAppearance),
-      "cinematic lighting, photorealistic.",
-    ].join(" "),
+  const resolvedStyle = mergeVisualStyle(visualStyle);
+  const tags = sceneCharacters
+    .map(
+      (character) =>
+        `${character.name}: ${compressCharacterAppearance(character.appearance)}`,
+    )
+    .join("; ");
+
+  return enhanceImagePromptForTalking(
+    clampWords(
+      [
+        scene.visualDescription,
+        tags,
+        imagePromptAnimationSuffix(resolvedStyle.animationStyle),
+      ].join(" "),
+      MAX_IMAGE_WORDS,
+    ),
+    scene,
     MAX_IMAGE_WORDS,
   );
 }
@@ -260,13 +381,15 @@ export class PromptAgent {
 
   async execute(
     scene: SceneScript,
-    characterAppearance: string,
+    characters: StoryCharacter[],
     videoMode: VideoGenerationMode = "local",
     language: StoryLanguage = "en",
+    visualStyle?: SeriesVisualStyle,
   ): Promise<ScenePrompts> {
+    const sceneCharacters = getCharactersForScene(scene, characters);
     const attempts = [
-      buildPromptRequest(scene, characterAppearance, videoMode, language),
-      `${buildPromptRequest(scene, characterAppearance, videoMode, language)}
+      buildPromptRequest(scene, characters, videoMode, language, visualStyle),
+      `${buildPromptRequest(scene, characters, videoMode, language, visualStyle)}
 
 Your previous answer was invalid JSON. Reply again with ONLY the JSON object.`,
     ];
@@ -281,7 +404,7 @@ Your previous answer was invalid JSON. Reply again with ONLY the JSON object.`,
         const parsed = parsePromptPair(
           JSON.parse(extractJsonObject(text)),
           scene,
-          characterAppearance,
+          sceneCharacters,
           videoMode,
         );
         return parsed;
@@ -294,10 +417,9 @@ Your previous answer was invalid JSON. Reply again with ONLY the JSON object.`,
     }
 
     if (lastError) {
-      // Fall back so the pipeline can continue even if the model returns bad JSON.
       return {
-        imagePrompt: buildFallbackImagePrompt(scene, characterAppearance),
-        videoPrompt: buildFallbackVideoPrompt(scene, videoMode),
+        imagePrompt: buildFallbackImagePrompt(scene, sceneCharacters, visualStyle),
+        videoPrompt: buildFallbackVideoPrompt(scene, videoMode, visualStyle),
       };
     }
 

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import type { SceneScript } from "../content-state";
+import type { SceneScript, SeriesVisualStyle } from "../content-state";
 import { VideoAgent } from "../agents/video.agent";
 
 export type VideoJobStatus = "queued" | "running" | "completed" | "failed";
@@ -21,7 +21,7 @@ export class VideoJobService {
 
   constructor(private readonly videoAgent: VideoAgent) {}
 
-  start(scene: SceneScript): VideoJobRecord {
+  start(scene: SceneScript, visualStyle?: SeriesVisualStyle): VideoJobRecord {
     const id = randomUUID();
     const record: VideoJobRecord = {
       id,
@@ -31,7 +31,7 @@ export class VideoJobService {
       updatedAt: Date.now(),
     };
     this.jobs.set(id, record);
-    void this.run(id, scene);
+    void this.run(id, scene, visualStyle);
     return record;
   }
 
@@ -43,7 +43,11 @@ export class VideoJobService {
     return record;
   }
 
-  private async run(id: string, scene: SceneScript): Promise<void> {
+  private async run(
+    id: string,
+    scene: SceneScript,
+    visualStyle?: SeriesVisualStyle,
+  ): Promise<void> {
     const record = this.jobs.get(id);
     if (!record) {
       return;
@@ -53,7 +57,7 @@ export class VideoJobService {
     record.updatedAt = Date.now();
 
     try {
-      const result = await this.videoAgent.execute(scene);
+      const result = await this.videoAgent.execute(scene, visualStyle);
       record.status = "completed";
       record.scene = result;
       record.updatedAt = Date.now();

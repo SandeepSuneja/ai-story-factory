@@ -12,6 +12,8 @@ import { VideoAgent } from './agents/video.agent';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ProjectsController } from './projects.controller';
+import { SeriesService } from './services/series.service';
+import { SeriesController } from './series.controller';
 import { FluxService } from './services/flux.service';
 import { HunyuanService } from './services/hunyuan.service';
 import { MediaUploadService } from './services/media-upload.service';
@@ -25,10 +27,11 @@ import { ImageJobService } from './services/image-job.service';
 
 @Module({
   imports: [],
-  controllers: [AppController, ProjectsController],
+  controllers: [AppController, ProjectsController, SeriesController],
   providers: [
     AppService,
     ProjectService,
+    SeriesService,
     QwenService,
     FluxService,
     HunyuanService,

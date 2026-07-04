@@ -584,6 +584,9 @@ class GenerateVideoRequest(BaseModel):
     scene_number: int = Field(ge=1)
     image_filename: str = Field(min_length=1)
     duration_seconds: int | None = Field(default=None, ge=1, le=30)
+    orientation: str = Field(default="landscape")
+    width: int | None = Field(default=None, ge=256, le=2048)
+    height: int | None = Field(default=None, ge=256, le=2048)
 
 
 class GenerateVideoResponse(BaseModel):
@@ -698,6 +701,12 @@ def generate_video(request: GenerateVideoRequest) -> GenerateVideoResponse:
     output_path = VIDEO_DIR / filename
     num_frames = apply_vram_frame_budget(clamp_num_frames(request.duration_seconds))
     export_fps = resolve_export_fps(num_frames, request.duration_seconds)
+    frame_width = request.width or (
+        VIDEO_HEIGHT if request.orientation == "portrait" else output_width
+    )
+    frame_height = request.height or (
+        VIDEO_WIDTH if request.orientation == "portrait" else output_height
+    )
 
     try:
         image = load_image(str(image_path))
@@ -706,8 +715,8 @@ def generate_video(request: GenerateVideoRequest) -> GenerateVideoResponse:
         logger.info(
             "Generating scene %s (%sx%s, %s frames, %s steps, export %.2f fps, guidance=%s)",
             request.scene_number,
-            output_width,
-            output_height,
+            frame_width,
+            frame_height,
             num_frames,
             inference_steps,
             export_fps,
@@ -721,8 +730,8 @@ def generate_video(request: GenerateVideoRequest) -> GenerateVideoResponse:
                 image=image,
                 prompt=motion_prompt,
                 negative_prompt=NEGATIVE_PROMPT,
-                width=output_width,
-                height=output_height,
+                width=frame_width,
+                height=frame_height,
                 num_frames=num_frames,
                 num_inference_steps=inference_steps,
                 guidance_scale=GUIDANCE_SCALE,

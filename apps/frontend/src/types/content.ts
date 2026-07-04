@@ -1,19 +1,55 @@
+import type { SeriesVisualStyle } from './series';
+
 export type StoryLanguage = 'en' | 'hi';
 
 export type VideoGenerationMode = 'local' | 'professional';
+
+export interface DialogueLine {
+  characterId: string;
+  speaker?: string;
+  text: string;
+}
+
+export interface SubtitleCue {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface DialogueSegment {
+  characterId?: string;
+  speaker: string;
+  text: string;
+  voice: string;
+  start: number;
+  end: number;
+}
+
+export interface StoryCharacter {
+  id: string;
+  name: string;
+  role: string;
+  appearance: string;
+  voice: string;
+}
 
 export interface SceneScript {
   sceneNumber: number;
   narration: string;
   visualDescription: string;
   duration: number;
+  dialogue?: DialogueLine[];
+  presentCharacterIds?: string[];
   imagePrompt?: string;
   videoPrompt?: string;
+  /** @deprecated Legacy single-character field */
   characterAppearance?: string;
   imagePath?: string;
   videoPath?: string;
   upscaledVideoPath?: string;
   audioPath?: string;
+  subtitleCues?: SubtitleCue[];
+  dialogueSegments?: DialogueSegment[];
 }
 
 export interface GenerateIdeaRequest {
@@ -47,17 +83,22 @@ export interface GenerateCharacterProfileRequest {
   story: string;
   script: SceneScript[];
   storyLanguage?: StoryLanguage;
+  seriesId?: string | null;
 }
 
 export interface GenerateCharacterProfileResponse {
-  characterAppearance: string;
+  characters: StoryCharacter[];
+  script: SceneScript[];
+  reusedCharacters: string[];
+  newCharacters: StoryCharacter[];
 }
 
 export interface GeneratePromptRequest {
   scene: SceneScript;
-  characterAppearance: string;
+  characters: StoryCharacter[];
   videoMode?: VideoGenerationMode;
   storyLanguage?: StoryLanguage;
+  visualStyle?: SeriesVisualStyle;
 }
 
 export interface UploadVideoResponse {
@@ -71,6 +112,7 @@ export interface GeneratePromptResponse {
 
 export interface GenerateImageRequest {
   scene: SceneScript;
+  visualStyle?: SeriesVisualStyle;
 }
 
 export interface StartImageJobResponse {
@@ -93,6 +135,7 @@ export interface GenerateImageResponse {
 
 export interface GenerateVideoRequest {
   scene: SceneScript;
+  visualStyle?: SeriesVisualStyle;
 }
 
 export interface StartVideoJobResponse {
@@ -120,6 +163,7 @@ export type PipelineStep =
   | 'script'
   | 'character'
   | 'prompts'
+  | 'visual'
   | 'images'
   | 'videos'
   | 'audio'
@@ -128,6 +172,7 @@ export type PipelineStep =
 
 export interface UpscaleVideoRequest {
   scene: SceneScript;
+  visualStyle?: SeriesVisualStyle;
 }
 
 export interface UpscaleVideoResponse {
@@ -136,6 +181,7 @@ export interface UpscaleVideoResponse {
 
 export interface GenerateAudioRequest {
   scene: SceneScript;
+  characters: StoryCharacter[];
   storyLanguage?: StoryLanguage;
 }
 

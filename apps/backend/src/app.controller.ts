@@ -79,6 +79,8 @@ export class AppController {
       body.story,
       body.script,
       body.storyLanguage,
+      body.seriesId,
+      body.existingCharacters,
     );
   }
 
@@ -88,9 +90,10 @@ export class AppController {
   ): Promise<GeneratePromptResponseDto> {
     return this.appService.generatePrompt(
       body.scene,
-      body.characterAppearance,
+      body.characters,
       body.videoMode ?? 'local',
       body.storyLanguage,
+      body.visualStyle,
     );
   }
 
@@ -98,7 +101,7 @@ export class AppController {
   startImageJob(
     @Body() body: GenerateImageRequestDto,
   ): StartImageJobResponseDto {
-    return this.appService.startImageJob(body.scene);
+    return this.appService.startImageJob(body.scene, body.visualStyle);
   }
 
   @Get('generate/image/:jobId')
@@ -112,7 +115,7 @@ export class AppController {
   startVideoJob(
     @Body() body: GenerateVideoRequestDto,
   ): StartVideoJobResponseDto {
-    return this.appService.startVideoJob(body.scene);
+    return this.appService.startVideoJob(body.scene, body.visualStyle);
   }
 
   @Get('generate/video/:jobId')
@@ -145,14 +148,18 @@ export class AppController {
   upscaleVideo(
     @Body() body: UpscaleVideoRequestDto,
   ): Promise<UpscaleVideoResponseDto> {
-    return this.appService.upscaleVideo(body.scene);
+    return this.appService.upscaleVideo(body.scene, body.visualStyle);
   }
 
   @Post('generate/audio')
   generateAudio(
     @Body() body: GenerateAudioRequestDto,
   ): Promise<GenerateAudioResponseDto> {
-    return this.appService.generateAudio(body.scene, body.storyLanguage);
+    return this.appService.generateAudio(
+      body.scene,
+      body.characters,
+      body.storyLanguage,
+    );
   }
 
   @Post('generate/assembly')

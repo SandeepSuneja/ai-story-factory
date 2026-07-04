@@ -19,13 +19,23 @@ import {
   listProjects,
   updateProject,
 } from '../api/projects';
+import {
+  createSeries,
+  listSeries,
+  updateSeries,
+} from '../api/series';
 import { ProjectSidebar } from './ProjectSidebar';
 import type {
   PipelineStep,
   SceneScript,
+  StoryCharacter,
   StoryLanguage,
   VideoGenerationMode,
 } from '../types/content';
+import {
+  formatSceneDialogue,
+  getSceneDialogue,
+} from '../utils/characters';
 import {
   ACTIVE_PROJECT_STORAGE_KEY,
   createEmptyProjectState,
@@ -36,28 +46,33 @@ import {
   type SaveStatus,
 } from '../types/project';
 import {
+  ACTIVE_SERIES_STORAGE_KEY,
+  getAnimationStyleLabel,
+  getOrientationLabel,
+  mergeVisualStyle,
+  type SeriesSummary,
+  type SeriesVisualStyle,
+} from '../types/series';
+import {
   getResumeProgressLabel,
   inferInterruptedStep,
   resolveEffectiveReviewStep,
   serializePipelineState,
   shouldReviewImagesStep,
 } from '../utils/pipeline-state';
+import {
+  buildVideoVariantState,
+  hasReusableStoryContent,
+} from '../utils/story-content';
 
-const EXAMPLE_TOPICS: Record<StoryLanguage, string[]> = {
-  en: [
-    'Time Traveler',
-    'Lost in the Metaverse',
-    'The Last Lighthouse Keeper',
-  ],
-  hi: [
-    'समय यात्री',
-    'मेटावर्स में खोया',
-    'आखिरी प्रकाशस्तंभ रखवाल',
-  ],
-};
+const EXAMPLE_TOPICS: string[] = [
+  'Time Traveler',
+  'Lost in the Metaverse',
+  'The Last Lighthouse Keeper',
+];
 
 function getStoryLanguageLabel(language: StoryLanguage): string {
-  return language === 'hi' ? 'हिन्दी' : 'English';
+  return language === 'hi' ? 'Hindi dialogue' : 'English';
 }
 
 const STEPS: { id: PipelineStep; label: string }[] = [
@@ -65,6 +80,7 @@ const STEPS: { id: PipelineStep; label: string }[] = [
   { id: 'story', label: 'Story' },
   { id: 'script', label: 'Script' },
   { id: 'character', label: 'Character' },
+  { id: 'visual', label: 'Visual settings' },
   { id: 'prompts', label: 'Video prompts' },
   { id: 'images', label: 'Images' },
   { id: 'videos', label: 'Scene videos (1080p)' },
@@ -77,6 +93,7 @@ const STEP_ORDER: PipelineStep[] = [
   'story',
   'script',
   'character',
+  'visual',
   'prompts',
   'images',
   'videos',
@@ -109,20 +126,24 @@ function normalizeLegacyStep(step: PipelineStep | null): PipelineStep | null {
   return step;
 }
 
-async function upscaleSceneVideo(scene: SceneScript): Promise<SceneScript> {
+async function upscaleSceneVideo(
+  scene: SceneScript,
+  visualStyle: SeriesVisualStyle,
+): Promise<SceneScript> {
   if (!scene.videoPath?.trim()) {
     throw new Error(`Scene ${scene.sceneNumber} is missing a source video.`);
   }
 
-  const response = await upscaleScene({ scene });
+  const response = await upscaleScene({ scene, visualStyle });
   return sanitizeVideoScenes([response.scene])[0];
 }
 
 async function generateVideoAndUpscale(
   imageScene: SceneScript,
+  visualStyle: SeriesVisualStyle,
 ): Promise<SceneScript> {
-  const videoResponse = await generateVideo({ scene: imageScene });
-  return upscaleSceneVideo(videoResponse.scene);
+  const videoResponse = await generateVideo({ scene: imageScene, visualStyle });
+  return upscaleSceneVideo(videoResponse.scene, visualStyle);
 }
 
 function sanitizeVideoScenes(scenes: SceneScript[]): SceneScript[] {
@@ -155,6 +176,10 @@ function buildAssemblyScenes(
       ...videoScene,
       audioPath: audioScene.audioPath ?? videoScene.audioPath,
       narration: audioScene.narration ?? videoScene.narration,
+      subtitleCues: audioScene.subtitleCues ?? videoScene.subtitleCues,
+      dialogue: audioScene.dialogue ?? videoScene.dialogue,
+      dialogueSegments:
+        audioScene.dialogueSegments ?? videoScene.dialogueSegments,
       duration: audioScene.duration ?? videoScene.duration,
     };
   });
@@ -181,9 +206,17 @@ export function StoryGenerator() {
   const [videoScenes, setVideoScenes] = useState<SceneScript[]>([]);
   const [audioScenes, setAudioScenes] = useState<SceneScript[]>([]);
   const [finalVideoPath, setFinalVideoPath] = useState<string | null>(null);
-  const [characterAppearance, setCharacterAppearance] = useState<string | null>(
-    null,
+  const [characters, setCharacters] = useState<StoryCharacter[]>([]);
+  const [reusedCharacterNames, setReusedCharacterNames] = useState<string[]>([]);
+  const [seriesId, setSeriesId] = useState<string | null>(null);
+  const [sourceProjectId, setSourceProjectId] = useState<string | null>(null);
+  const [visualStyle, setVisualStyle] = useState<SeriesVisualStyle>(
+    mergeVisualStyle(),
   );
+  const [seriesList, setSeriesList] = useState<SeriesSummary[]>([]);
+  const [activeSeriesId, setActiveSeriesId] = useState<string | null>(null);
+  const [seriesName, setSeriesName] = useState('');
+  const [loadingSeries, setLoadingSeries] = useState(true);
   const [sceneProgressIndex, setSceneProgressIndex] = useState(0);
   const [regeneratingSceneIndex, setRegeneratingSceneIndex] = useState<
     number | null
@@ -217,7 +250,7 @@ export function StoryGenerator() {
     idea ||
     story ||
     scriptScenes.length > 0 ||
-    characterAppearance ||
+    characters.length > 0 ||
     promptedScenes.length > 0 ||
     imageScenes.length > 0 ||
     videoScenes.length > 0 ||
@@ -237,7 +270,14 @@ export function StoryGenerator() {
     setIdea(normalized.idea);
     setStory(normalized.story);
     setScriptScenes(normalized.scriptScenes);
-    setCharacterAppearance(normalized.characterAppearance);
+    setCharacters(normalized.characters);
+    setSeriesId(normalized.seriesId ?? null);
+    setSourceProjectId(normalized.sourceProjectId ?? null);
+    setVisualStyle(mergeVisualStyle(normalized.visualStyle));
+    if (normalized.seriesId) {
+      setActiveSeriesId(normalized.seriesId);
+    }
+    setReusedCharacterNames([]);
     setPromptedScenes(normalized.promptedScenes);
     setImageScenes(normalized.imageScenes);
     setVideoScenes(sanitizeVideoScenes(normalized.videoScenes));
@@ -289,7 +329,10 @@ export function StoryGenerator() {
         idea,
         story,
         scriptScenes,
-        characterAppearance,
+        characters,
+        seriesId,
+        sourceProjectId,
+        visualStyle,
         promptedScenes,
         imageScenes,
         videoScenes: sanitizeVideoScenes(videoScenes),
@@ -309,7 +352,10 @@ export function StoryGenerator() {
       idea,
       story,
       scriptScenes,
-      characterAppearance,
+      characters,
+      seriesId,
+      sourceProjectId,
+      visualStyle,
       promptedScenes,
       imageScenes,
       videoScenes,
@@ -321,6 +367,18 @@ export function StoryGenerator() {
       error,
     ],
   );
+
+  const refreshSeriesList = useCallback(async () => {
+    const summaries = await listSeries();
+    setSeriesList(summaries);
+    if (activeSeriesId) {
+      const active = summaries.find((series) => series.id === activeSeriesId);
+      if (active) {
+        setSeriesName(active.name);
+      }
+    }
+    return summaries;
+  }, [activeSeriesId]);
 
   const refreshProjectList = useCallback(async () => {
     const summaries = await listProjects();
@@ -347,6 +405,7 @@ export function StoryGenerator() {
             id: updated.id,
             name: updated.name,
             topic: updated.state.topic,
+            seriesId: updated.seriesId ?? updated.state.seriesId ?? null,
             currentStep: updated.state.currentStep,
             updatedAt: updated.updatedAt,
           });
@@ -371,9 +430,15 @@ export function StoryGenerator() {
       setSwitchingProject(true);
       try {
         const project = await getProject(projectId);
-        applyProjectState(project.state);
+        applyProjectState({
+          ...project.state,
+          seriesId: project.seriesId ?? project.state.seriesId ?? null,
+        });
         setActiveProjectId(project.id);
         setProjectName(project.name);
+        if (project.seriesId ?? project.state.seriesId) {
+          setActiveSeriesId(project.seriesId ?? project.state.seriesId ?? null);
+        }
         localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, project.id);
         await refreshProjectList();
       } finally {
@@ -385,6 +450,32 @@ export function StoryGenerator() {
     },
     [applyProjectState, refreshProjectList],
   );
+
+  useEffect(() => {
+    async function bootstrapSeries() {
+      setLoadingSeries(true);
+      try {
+        const summaries = await refreshSeriesList();
+        const storedSeriesId = localStorage.getItem(ACTIVE_SERIES_STORAGE_KEY);
+        if (
+          storedSeriesId &&
+          summaries.some((series) => series.id === storedSeriesId)
+        ) {
+          setActiveSeriesId(storedSeriesId);
+          const active = summaries.find((series) => series.id === storedSeriesId);
+          setSeriesName(active?.name ?? '');
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : 'Failed to load saved series.',
+        );
+      } finally {
+        setLoadingSeries(false);
+      }
+    }
+
+    void bootstrapSeries();
+  }, [refreshSeriesList]);
 
   useEffect(() => {
     async function bootstrapProjects() {
@@ -400,7 +491,10 @@ export function StoryGenerator() {
         if (initialId) {
           await loadProjectById(initialId);
         } else {
-          const created = await createProject({ name: 'Untitled project' });
+          const created = await createProject({
+            name: 'Untitled project',
+            seriesId: activeSeriesId,
+          });
           await refreshProjectList();
           await loadProjectById(created.id);
         }
@@ -416,7 +510,7 @@ export function StoryGenerator() {
     }
 
     void bootstrapProjects();
-  }, [loadProjectById, refreshProjectList]);
+  }, [activeSeriesId, loadProjectById, refreshProjectList]);
 
   useEffect(() => {
     if (!activeProjectId || skipSaveRef.current || loading || switchingProject) {
@@ -456,7 +550,7 @@ export function StoryGenerator() {
     idea,
     story,
     scriptScenes,
-    characterAppearance,
+    characters,
     promptedScenes,
     imageScenes,
     videoScenes,
@@ -545,6 +639,53 @@ export function StoryGenerator() {
     applyProjectState(createEmptyProjectState());
   }
 
+  async function handleCreateSeries() {
+    if (switchingProject) {
+      return;
+    }
+
+    try {
+      const created = await createSeries({ name: 'Untitled series' });
+      await refreshSeriesList();
+      setActiveSeriesId(created.id);
+      setSeriesName(created.name);
+      localStorage.setItem(ACTIVE_SERIES_STORAGE_KEY, created.id);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to create a new series.',
+      );
+    }
+  }
+
+  function handleSelectSeries(nextSeriesId: string | null) {
+    setActiveSeriesId(nextSeriesId);
+    if (nextSeriesId) {
+      localStorage.setItem(ACTIVE_SERIES_STORAGE_KEY, nextSeriesId);
+      const active = seriesList.find((series) => series.id === nextSeriesId);
+      setSeriesName(active?.name ?? '');
+    } else {
+      localStorage.removeItem(ACTIVE_SERIES_STORAGE_KEY);
+      setSeriesName('');
+    }
+  }
+
+  async function handleRenameSeries(name: string) {
+    setSeriesName(name);
+    if (!activeSeriesId) {
+      return;
+    }
+
+    try {
+      await updateSeries(activeSeriesId, { name });
+      await refreshSeriesList();
+    } catch (err) {
+      setSaveStatus('error');
+      setError(
+        err instanceof Error ? err.message : 'Failed to rename series.',
+      );
+    }
+  }
+
   async function handleCreateProject() {
     if (switchingProject) {
       return;
@@ -554,7 +695,10 @@ export function StoryGenerator() {
       if (activeProjectId) {
         await persistActiveProject();
       }
-      const created = await createProject({ name: 'Untitled project' });
+      const created = await createProject({
+        name: 'Untitled project',
+        seriesId: activeSeriesId,
+      });
       await refreshProjectList();
       await loadProjectById(created.id);
     } catch (err) {
@@ -601,7 +745,10 @@ export function StoryGenerator() {
         return;
       }
 
-      const created = await createProject({ name: 'Untitled project' });
+      const created = await createProject({
+        name: 'Untitled project',
+        seriesId: activeSeriesId,
+      });
       await refreshProjectList();
       await loadProjectById(created.id);
     } catch (err) {
@@ -642,6 +789,7 @@ export function StoryGenerator() {
       7: true,
       8: true,
       9: true,
+      10: true,
     });
   }
 
@@ -656,6 +804,7 @@ export function StoryGenerator() {
       7: false,
       8: false,
       9: false,
+      10: false,
     });
   }
 
@@ -672,7 +821,7 @@ export function StoryGenerator() {
         setIdea(null);
         setStory(null);
         setScriptScenes([]);
-        setCharacterAppearance(null);
+        setCharacters([]);
         setPromptedScenes([]);
         setImageScenes([]);
         setVideoScenes([]);
@@ -682,7 +831,7 @@ export function StoryGenerator() {
       case 'story':
         setStory(null);
         setScriptScenes([]);
-        setCharacterAppearance(null);
+        setCharacters([]);
         setPromptedScenes([]);
         setImageScenes([]);
         setVideoScenes([]);
@@ -691,7 +840,7 @@ export function StoryGenerator() {
         break;
       case 'script':
         setScriptScenes([]);
-        setCharacterAppearance(null);
+        setCharacters([]);
         setPromptedScenes([]);
         setImageScenes([]);
         setVideoScenes([]);
@@ -699,7 +848,14 @@ export function StoryGenerator() {
         setFinalVideoPath(null);
         break;
       case 'character':
-        setCharacterAppearance(null);
+        setCharacters([]);
+        setPromptedScenes([]);
+        setImageScenes([]);
+        setVideoScenes([]);
+        setAudioScenes([]);
+        setFinalVideoPath(null);
+        break;
+      case 'visual':
         setPromptedScenes([]);
         setImageScenes([]);
         setVideoScenes([]);
@@ -787,14 +943,18 @@ export function StoryGenerator() {
             story,
             script: scriptScenes,
             storyLanguage,
+            seriesId,
           });
-          setCharacterAppearance(response.characterAppearance);
+          setCharacters(response.characters);
+          setScriptScenes(response.script);
+          setReusedCharacterNames(response.reusedCharacters);
+          await refreshSeriesList();
           revealStep(4);
           break;
         }
         case 'prompts': {
-          if (!characterAppearance || scriptScenes.length === 0) {
-            throw new Error('Define a character profile first.');
+          if (characters.length === 0 || scriptScenes.length === 0) {
+            throw new Error('Define character profiles first.');
           }
           const startIndex = options.resume ? promptedScenes.length : 0;
           const scenesWithPrompts = options.resume ? [...promptedScenes] : [];
@@ -802,14 +962,15 @@ export function StoryGenerator() {
             setSceneProgressIndex(index);
             const response = await generatePrompt({
               scene: scriptScenes[index],
-              characterAppearance,
+              characters,
               videoMode: videoGenerationMode,
               storyLanguage,
+              visualStyle,
             });
             scenesWithPrompts.push(response.scene);
             setPromptedScenes([...scenesWithPrompts]);
           }
-          revealStep(5);
+          revealStep(6);
           break;
         }
         case 'images': {
@@ -820,11 +981,14 @@ export function StoryGenerator() {
           const scenesWithImages = options.resume ? [...imageScenes] : [];
           for (let index = startIndex; index < promptedScenes.length; index++) {
             setSceneProgressIndex(index);
-            const response = await generateImage({ scene: promptedScenes[index] });
+            const response = await generateImage({
+              scene: promptedScenes[index],
+              visualStyle,
+            });
             scenesWithImages.push(response.scene);
             setImageScenes([...scenesWithImages]);
           }
-          revealStep(6);
+          revealStep(7);
           break;
         }
         case 'videos': {
@@ -833,7 +997,7 @@ export function StoryGenerator() {
           }
 
           if (videoGenerationMode === 'professional') {
-            revealStep(7);
+            revealStep(8);
             break;
           }
 
@@ -843,7 +1007,7 @@ export function StoryGenerator() {
             : videoScenes.length;
 
           if (startIndex >= orderedScenes.length) {
-            revealStep(7);
+            revealStep(8);
             break;
           }
 
@@ -864,12 +1028,12 @@ export function StoryGenerator() {
 
               setSceneProgressIndex(index);
               const upscaledScene = existing?.videoPath?.trim()
-                ? await upscaleSceneVideo(existing)
-                : await generateVideoAndUpscale(imageScene);
+                ? await upscaleSceneVideo(existing, visualStyle)
+                : await generateVideoAndUpscale(imageScene, visualStyle);
               scenesWithVideo[index] = upscaledScene;
               setVideoScenes(sanitizeVideoScenes([...scenesWithVideo]));
             }
-            revealStep(7);
+            revealStep(8);
             break;
           }
 
@@ -886,13 +1050,13 @@ export function StoryGenerator() {
           }
 
           setSceneProgressIndex(startIndex);
-          const upscaledScene = await generateVideoAndUpscale(scene);
+          const upscaledScene = await generateVideoAndUpscale(scene, visualStyle);
           setVideoScenes((current) => {
             const next = [...current];
             next[startIndex] = upscaledScene;
             return next.slice(0, startIndex + 1);
           });
-          revealStep(7);
+          revealStep(8);
           break;
         }
         case 'audio': {
@@ -907,17 +1071,26 @@ export function StoryGenerator() {
           const scenesWithAudio = options.resume ? [...audioScenes] : [];
           for (let index = startIndex; index < orderedScenes.length; index++) {
             const scene = orderedScenes[index];
-            if (!scene.narration?.trim()) {
+            const scriptScene = scriptScenes.find(
+              (entry) => entry.sceneNumber === scene.sceneNumber,
+            );
+            const spokenScene = scriptScene ?? scene;
+            const hasDialogue = getSceneDialogue(spokenScene).length > 0;
+            if (!hasDialogue && !spokenScene.narration?.trim()) {
               throw new Error(
-                `Scene ${scene.sceneNumber} is missing narration text.`,
+                `Scene ${scene.sceneNumber} is missing dialogue text.`,
               );
             }
             setSceneProgressIndex(index);
-            const response = await generateAudio({ scene, storyLanguage });
+            const response = await generateAudio({
+              scene: { ...spokenScene, ...scene },
+              characters,
+              storyLanguage,
+            });
             scenesWithAudio.push(response.scene);
             setAudioScenes([...scenesWithAudio]);
           }
-          revealStep(8);
+          revealStep(9);
           break;
         }
         case 'assembly': {
@@ -929,7 +1102,7 @@ export function StoryGenerator() {
             projectName: projectName.trim() || topic.trim() || undefined,
           });
           setFinalVideoPath(response.finalVideoPath);
-          revealStep(9);
+          revealStep(10);
           break;
         }
         default:
@@ -981,7 +1154,12 @@ export function StoryGenerator() {
       try {
         const created = await createProject({
           name: trimmedTopic,
-          state: { topic: trimmedTopic, storyLanguage, videoGenerationMode },
+          seriesId: activeSeriesId,
+          state: {
+            topic: trimmedTopic,
+            storyLanguage,
+            videoGenerationMode,
+          },
         });
         await refreshProjectList();
         await loadProjectById(created.id);
@@ -1006,8 +1184,40 @@ export function StoryGenerator() {
       7: false,
       8: false,
       9: false,
+      10: false,
     });
     await runStep('idea');
+  }
+
+  async function createVideoVariant() {
+    if (!activeProjectId || !hasReusableStoryContent(getPersistedState())) {
+      return;
+    }
+
+    try {
+      if (activeProjectId) {
+        await persistActiveProject();
+      }
+
+      const variantState = buildVideoVariantState(
+        getPersistedState(),
+        activeProjectId,
+      );
+      const baseName = projectName.trim() || topic.trim() || 'Untitled project';
+      const created = await createProject({
+        name: `${baseName} — new version`,
+        seriesId: activeSeriesId,
+        state: variantState,
+      });
+      await refreshProjectList();
+      await loadProjectById(created.id);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to create a new video version.',
+      );
+    }
   }
 
   async function approveAndContinue() {
@@ -1021,6 +1231,21 @@ export function StoryGenerator() {
     });
 
     if (!step) {
+      return;
+    }
+
+    if (step === 'character') {
+      setApprovedThroughIndex(STEP_ORDER.indexOf('character'));
+      setReviewStep('visual');
+      setCurrentStep('visual');
+      revealStep(5);
+      return;
+    }
+
+    if (step === 'visual') {
+      setApprovedThroughIndex(STEP_ORDER.indexOf('visual'));
+      setReviewStep(null);
+      await runStep('prompts');
       return;
     }
 
@@ -1045,7 +1270,7 @@ export function StoryGenerator() {
 
           try {
             setSceneProgressIndex(nextIndex);
-            const upscaledScene = await generateVideoAndUpscale(scene);
+            const upscaledScene = await generateVideoAndUpscale(scene, visualStyle);
             setVideoScenes((current) => {
               const next = [...current];
               next[nextIndex] = upscaledScene;
@@ -1108,7 +1333,7 @@ export function StoryGenerator() {
   }
 
   async function regenerateScenePrompt(index: number) {
-    if (!characterAppearance || !scriptScenes[index]) {
+    if (characters.length === 0 || !scriptScenes[index]) {
       return;
     }
 
@@ -1118,9 +1343,10 @@ export function StoryGenerator() {
     try {
       const response = await generatePrompt({
         scene: scriptScenes[index],
-        characterAppearance,
+        characters,
         videoMode: videoGenerationMode,
         storyLanguage,
+        visualStyle,
       });
       setPromptedScenes((current) => {
         const next = [...current];
@@ -1147,7 +1373,7 @@ export function StoryGenerator() {
     setRegeneratingSceneIndex(index);
 
     try {
-      const response = await generateImage({ scene });
+      const response = await generateImage({ scene, visualStyle });
       setImageScenes((current) => {
         const next = [...current];
         next[index] = response.scene;
@@ -1164,7 +1390,12 @@ export function StoryGenerator() {
 
   async function regenerateSceneAudio(index: number) {
     const scene = audioScenes[index] ?? videoScenes[index];
-    if (!scene?.narration?.trim()) {
+    const scriptScene = scriptScenes.find(
+      (entry) => entry.sceneNumber === scene?.sceneNumber,
+    );
+    const spokenScene = scriptScene ?? scene;
+    const hasDialogue = spokenScene ? getSceneDialogue(spokenScene).length > 0 : false;
+    if (!spokenScene || (!hasDialogue && !spokenScene.narration?.trim())) {
       return;
     }
 
@@ -1172,7 +1403,11 @@ export function StoryGenerator() {
     setRegeneratingSceneIndex(index);
 
     try {
-      const response = await generateAudio({ scene, storyLanguage });
+      const response = await generateAudio({
+        scene: { ...spokenScene, ...scene },
+        characters,
+        storyLanguage,
+      });
       setAudioScenes((current) => {
         const next = [...current];
         next[index] = response.scene;
@@ -1199,7 +1434,7 @@ export function StoryGenerator() {
     try {
       const uploaded = await uploadSceneVideo(scene.sceneNumber, file);
       const withVideo = { ...scene, videoPath: uploaded.videoPath };
-      const upscaledScene = await upscaleSceneVideo(withVideo);
+      const upscaledScene = await upscaleSceneVideo(withVideo, visualStyle);
       setVideoScenes((current) => {
         const next = [...current];
         next[index] = upscaledScene;
@@ -1238,8 +1473,8 @@ export function StoryGenerator() {
     setRegeneratingSceneIndex(index);
 
     try {
-      const response = await generateVideo({ scene });
-      const upscaledScene = await upscaleSceneVideo(response.scene);
+      const response = await generateVideo({ scene, visualStyle });
+      const upscaledScene = await upscaleSceneVideo(response.scene, visualStyle);
       setVideoScenes((current) => {
         const next = [...current];
         next[index] = upscaledScene;
@@ -1273,6 +1508,14 @@ export function StoryGenerator() {
   const pendingProfessionalUploadScene =
     orderedImageScenes[nextProfessionalUploadIndex];
 
+  const canCreateVideoVariant = hasReusableStoryContent({
+    idea,
+    story,
+    scriptScenes,
+    characters,
+    promptedScenes,
+  });
+
   const reviewStepLabel =
     STEPS.find((step) => step.id === effectiveReviewStep)?.label ??
     effectiveReviewStep;
@@ -1284,18 +1527,26 @@ export function StoryGenerator() {
         imageScenes,
         videoScenes,
         audioScenes,
+        finalVideoPath,
       })
     : null;
 
   return (
     <div className="app-layout">
       <ProjectSidebar
+        seriesList={seriesList}
+        activeSeriesId={activeSeriesId}
+        activeSeriesName={seriesName}
         projects={projects}
         activeProjectId={activeProjectId}
         activeProjectName={projectName}
         saveStatus={saveStatus}
+        loadingSeries={loadingSeries}
         loadingProjects={loadingProjects}
         switchingProject={switchingProject}
+        onSelectSeries={handleSelectSeries}
+        onCreateSeries={handleCreateSeries}
+        onRenameSeries={handleRenameSeries}
         onSelectProject={handleSelectProject}
         onCreateProject={handleCreateProject}
         onDeleteProject={handleDeleteProject}
@@ -1346,6 +1597,14 @@ export function StoryGenerator() {
                   {videoGenerationMode === 'professional'
                     ? 'Professional upload'
                     : 'Local generation'}
+                </strong>
+                {' · '}
+                Screen:{' '}
+                <strong>{getOrientationLabel(visualStyle.orientation)}</strong>
+                {' · '}
+                Look:{' '}
+                <strong>
+                  {getAnimationStyleLabel(visualStyle.animationStyle)}
                 </strong>
               </p>
             </div>
@@ -1416,7 +1675,7 @@ export function StoryGenerator() {
                   />
                   <span className="video-mode-option-title">English</span>
                   <span className="video-mode-option-copy">
-                    Idea, story, script, and narration in English.
+                    Idea, story, script, and dialogue in English.
                   </span>
                 </label>
                 <label
@@ -1429,9 +1688,10 @@ export function StoryGenerator() {
                     checked={storyLanguage === 'hi'}
                     onChange={() => setStoryLanguage('hi')}
                   />
-                  <span className="video-mode-option-title">हिन्दी</span>
+                  <span className="video-mode-option-title">Hindi dialogue</span>
                   <span className="video-mode-option-copy">
-                    Idea, story, script, and narration in Devanagari Hindi.
+                    Character spoken lines in Devanagari Hindi. Idea, story,
+                    script, and visuals stay in English.
                   </span>
                 </label>
               </div>
@@ -1479,7 +1739,7 @@ export function StoryGenerator() {
             {!introCompact ? (
               <div className="topic-chips" aria-label="Suggested topics">
                 <span className="chips-label">Suggested:</span>
-                {EXAMPLE_TOPICS[storyLanguage].map((example) => (
+                {EXAMPLE_TOPICS.map((example) => (
                   <button
                     key={example}
                     type="button"
@@ -1516,7 +1776,9 @@ export function StoryGenerator() {
             stepNumber={getStepNumber(effectiveReviewStep)}
             isLastStep={getNextStep(effectiveReviewStep) === 'complete'}
             description={
-              hasMoreVideosToGenerate
+              effectiveReviewStep === 'visual'
+                ? 'Choose screen orientation and animation style. These values are applied when generating image and video prompts.'
+                : hasMoreVideosToGenerate
                 ? `Scene ${countUpscaledScenes(videoScenes)} of ${orderedImageScenes.length} is ready at 1080p. Review below, regenerate if needed, then continue.`
                 : isProfessionalMode &&
                     effectiveReviewStep === 'videos' &&
@@ -1525,18 +1787,42 @@ export function StoryGenerator() {
                   : undefined
             }
             regenerateLabel={
-              hasMoreVideosToGenerate ? 'Regenerate scene' : undefined
+              effectiveReviewStep === 'visual'
+                ? undefined
+                : hasMoreVideosToGenerate
+                  ? 'Regenerate scene'
+                  : undefined
             }
             approveLabel={
-              hasMoreVideosToGenerate
+              effectiveReviewStep === 'visual'
+                ? 'Generate prompts'
+                : hasMoreVideosToGenerate
                 ? `Generate scene ${countUpscaledScenes(videoScenes) + 1} of ${orderedImageScenes.length}`
                 : effectiveReviewStep === 'videos'
                   ? 'Approve videos & continue'
                   : undefined
             }
+            hideRegenerate={effectiveReviewStep === 'visual'}
             onApprove={approveAndContinue}
             onRegenerate={regenerateCurrentStep}
           />
+        ) : null}
+
+        {hasResults && canCreateVideoVariant ? (
+          <div className="story-reuse-toolbar">
+            <p className="muted">
+              Reuse this idea, story, script, and prompts to produce another video
+              with different orientation or animation style.
+            </p>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={loading || switchingProject}
+              onClick={() => void createVideoVariant()}
+            >
+              New video version
+            </button>
+          </div>
         ) : null}
 
         {hasResults ? (
@@ -1595,36 +1881,96 @@ export function StoryGenerator() {
             summary={`${scriptScenes.length} scene${scriptScenes.length === 1 ? '' : 's'}`}
             status={getStepStatus('script', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
-            <SceneList scenes={scriptScenes} showPrompts={false} />
+            <SceneList scenes={scriptScenes} characters={characters} showPrompts={false} />
           </StepPanel>
         ) : null}
 
-        {characterAppearance || currentStep === 'character' ? (
+        {characters.length > 0 || currentStep === 'character' ? (
           <StepPanel
             step={4}
             title="Character consistency"
             expanded={expandedSteps[4]}
             onToggle={() => toggleStep(4)}
-            summary={characterAppearance ? 'Uniform look defined' : 'Defining character'}
+            summary={
+              characters.length > 0
+                ? `${characters.length} character${characters.length === 1 ? '' : 's'} defined`
+                : 'Defining characters'
+            }
             status={getStepStatus('character', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
-            {characterAppearance ? (
-              <div className="character-profile">
-                <strong>Uniform character appearance</strong>
-                <p>{characterAppearance}</p>
+            {characters.length > 0 ? (
+              <div className="character-profile-grid">
+                {reusedCharacterNames.length > 0 ? (
+                  <p className="muted character-series-note">
+                    Reused from series library: {reusedCharacterNames.join(', ')}
+                  </p>
+                ) : null}
+                {characters.map((character) => (
+                  <article key={character.id} className="character-profile">
+                    <strong>
+                      {character.name}
+                      <span className="character-role">{character.role}</span>
+                      {reusedCharacterNames.includes(character.name) ? (
+                        <span className="character-role">series</span>
+                      ) : null}
+                    </strong>
+                    <p>{character.appearance}</p>
+                    <p className="muted character-voice">Voice: {character.voice}</p>
+                  </article>
+                ))}
               </div>
             ) : (
-              <p className="muted">Defining uniform character from story and script...</p>
+              <p className="muted">
+                Defining uniform characters from story and script...
+              </p>
             )}
+          </StepPanel>
+        ) : null}
+
+        {characters.length > 0 || currentStep === 'visual' ? (
+          <StepPanel
+            step={5}
+            title="Visual settings"
+            expanded={expandedSteps[5]}
+            onToggle={() => toggleStep(5)}
+            summary={`${getOrientationLabel(visualStyle.orientation)} · ${getAnimationStyleLabel(visualStyle.animationStyle)}`}
+            status={getStepStatus('visual', effectiveReviewStep, generatingStep, approvedThroughIndex)}
+          >
+            {sourceProjectId ? (
+              <p className="muted character-series-note">
+                This video reuses story content from another project. Pick a new
+                look below, then generate prompts and images.
+              </p>
+            ) : null}
+            <VisualSettingsFieldsets
+              visualStyle={visualStyle}
+              onChange={setVisualStyle}
+              disabled={
+                loading ||
+                (promptedScenes.length > 0 && effectiveReviewStep !== 'visual')
+              }
+            />
+            {canCreateVideoVariant && effectiveReviewStep !== 'visual' ? (
+              <div className="visual-settings-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={loading || switchingProject}
+                  onClick={() => void createVideoVariant()}
+                >
+                  New video version from this story
+                </button>
+              </div>
+            ) : null}
           </StepPanel>
         ) : null}
 
         {promptedScenes.length > 0 || currentStep === 'prompts' ? (
           <StepPanel
-            step={5}
+            step={6}
             title="Video prompts"
-            expanded={expandedSteps[5]}
-            onToggle={() => toggleStep(5)}
+            expanded={expandedSteps[6]}
+            onToggle={() => toggleStep(6)}
             summary={
               promptedScenes.length > 0
                 ? `${promptedScenes.length} prompt${promptedScenes.length === 1 ? '' : 's'} ready`
@@ -1635,6 +1981,7 @@ export function StoryGenerator() {
             {promptedScenes.length > 0 ? (
               <SceneList
                 scenes={promptedScenes}
+                characters={characters}
                 showPrompts
                 onRegeneratePrompt={
                   effectiveReviewStep === 'prompts'
@@ -1644,17 +1991,19 @@ export function StoryGenerator() {
                 regeneratingSceneIndex={regeneratingSceneIndex}
               />
             ) : (
-              <p className="muted">Creating video prompts with consistent character...</p>
+              <p className="muted">
+                Creating image and video prompts using your visual settings...
+              </p>
             )}
           </StepPanel>
         ) : null}
 
         {imageScenes.length > 0 || currentStep === 'images' ? (
           <StepPanel
-            step={6}
+            step={7}
             title="Generated images"
-            expanded={expandedSteps[6]}
-            onToggle={() => toggleStep(6)}
+            expanded={expandedSteps[7]}
+            onToggle={() => toggleStep(7)}
             summary={
               imageScenes.length > 0
                 ? `${imageScenes.length} image${imageScenes.length === 1 ? '' : 's'} saved locally`
@@ -1681,14 +2030,14 @@ export function StoryGenerator() {
 
         {videoScenes.length > 0 || currentStep === 'videos' ? (
           <StepPanel
-            step={7}
+            step={8}
             title={
               isProfessionalMode
                 ? 'Scene videos (1080p)'
                 : 'Scene videos (1080p)'
             }
-            expanded={expandedSteps[7]}
-            onToggle={() => toggleStep(7)}
+            expanded={expandedSteps[8]}
+            onToggle={() => toggleStep(8)}
             summary={
               countUpscaledScenes(videoScenes) > 0
                 ? `${countUpscaledScenes(videoScenes)} of ${imageScenes.length || videoScenes.length} scene${countUpscaledScenes(videoScenes) === 1 ? '' : 's'} at 1920×1080`
@@ -1749,10 +2098,10 @@ export function StoryGenerator() {
 
         {audioScenes.length > 0 || currentStep === 'audio' ? (
           <StepPanel
-            step={8}
+            step={9}
             title="Narration audio"
-            expanded={expandedSteps[8]}
-            onToggle={() => toggleStep(8)}
+            expanded={expandedSteps[9]}
+            onToggle={() => toggleStep(9)}
             summary={
               audioScenes.length > 0
                 ? `${audioScenes.length} audio track${audioScenes.length === 1 ? '' : 's'} saved locally`
@@ -1763,6 +2112,7 @@ export function StoryGenerator() {
             {audioScenes.length > 0 ? (
               <SceneAudioGallery
                 scenes={audioScenes}
+                characters={characters}
                 onRegenerate={
                   effectiveReviewStep === 'audio'
                     ? regenerateSceneAudio
@@ -1781,14 +2131,14 @@ export function StoryGenerator() {
 
         {finalVideoPath || currentStep === 'assembly' ? (
           <StepPanel
-            step={9}
+            step={10}
             title="Final video"
-            expanded={expandedSteps[9]}
-            onToggle={() => toggleStep(9)}
+            expanded={expandedSteps[10]}
+            onToggle={() => toggleStep(10)}
             summary={
               finalVideoPath
-                ? 'Final story video with narration and burned-in subtitles'
-                : 'Assembling final video with subtitles'
+                ? 'Final story video with synced dialogue audio'
+                : 'Assembling final video'
             }
             status={getStepStatus('assembly', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
@@ -1809,7 +2159,7 @@ export function StoryGenerator() {
               </div>
             ) : (
               <p className="muted">
-                Joining scene clips, syncing narration, and burning in subtitles...
+                Joining scene clips and syncing dialogue audio...
               </p>
             )}
           </StepPanel>
@@ -1819,6 +2169,16 @@ export function StoryGenerator() {
       {currentStep === 'complete' && !loading && !effectiveReviewStep ? (
         <div className="complete-message">
           <p>Pipeline complete for "{topic}".</p>
+          {canCreateVideoVariant ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={switchingProject}
+              onClick={() => void createVideoVariant()}
+            >
+              Create another video from this story
+            </button>
+          ) : null}
           {finalVideoPath ? (
             <>
               <div className="final-video-wrap">
@@ -1866,6 +2226,124 @@ function getStepStatus(
   }
 
   return 'pending';
+}
+
+function VisualSettingsFieldsets({
+  visualStyle,
+  onChange,
+  disabled = false,
+}: {
+  visualStyle: SeriesVisualStyle;
+  onChange: (value: SeriesVisualStyle) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="visual-settings-panel">
+      <fieldset className="video-mode-selector" disabled={disabled}>
+        <legend>Screen orientation</legend>
+        <div className="video-mode-options">
+          <label
+            className={`video-mode-option ${visualStyle.orientation === 'landscape' ? 'is-selected' : ''}`}
+          >
+            <input
+              type="radio"
+              name="screenOrientation"
+              value="landscape"
+              checked={visualStyle.orientation === 'landscape'}
+              disabled={disabled}
+              onChange={() =>
+                onChange(
+                  mergeVisualStyle({
+                    ...visualStyle,
+                    orientation: 'landscape',
+                  }),
+                )
+              }
+            />
+            <span className="video-mode-option-title">Landscape</span>
+            <span className="video-mode-option-copy">
+              Horizontal 16:9 framing for YouTube and widescreen feeds.
+            </span>
+          </label>
+          <label
+            className={`video-mode-option ${visualStyle.orientation === 'portrait' ? 'is-selected' : ''}`}
+          >
+            <input
+              type="radio"
+              name="screenOrientation"
+              value="portrait"
+              checked={visualStyle.orientation === 'portrait'}
+              disabled={disabled}
+              onChange={() =>
+                onChange(
+                  mergeVisualStyle({
+                    ...visualStyle,
+                    orientation: 'portrait',
+                  }),
+                )
+              }
+            />
+            <span className="video-mode-option-title">Portrait</span>
+            <span className="video-mode-option-copy">
+              Vertical 9:16 framing for Shorts, Reels, and TikTok.
+            </span>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset className="video-mode-selector" disabled={disabled}>
+        <legend>Animation style</legend>
+        <div className="video-mode-options">
+          <label
+            className={`video-mode-option ${visualStyle.animationStyle === '2d' ? 'is-selected' : ''}`}
+          >
+            <input
+              type="radio"
+              name="animationStyle"
+              value="2d"
+              checked={visualStyle.animationStyle === '2d'}
+              disabled={disabled}
+              onChange={() =>
+                onChange(
+                  mergeVisualStyle({
+                    ...visualStyle,
+                    animationStyle: '2d',
+                  }),
+                )
+              }
+            />
+            <span className="video-mode-option-title">2D animated</span>
+            <span className="video-mode-option-copy">
+              Flat cel-shaded illustration with clean line art and bold colors.
+            </span>
+          </label>
+          <label
+            className={`video-mode-option ${visualStyle.animationStyle === '3d' ? 'is-selected' : ''}`}
+          >
+            <input
+              type="radio"
+              name="animationStyle"
+              value="3d"
+              checked={visualStyle.animationStyle === '3d'}
+              disabled={disabled}
+              onChange={() =>
+                onChange(
+                  mergeVisualStyle({
+                    ...visualStyle,
+                    animationStyle: '3d',
+                  }),
+                )
+              }
+            />
+            <span className="video-mode-option-title">3D animated</span>
+            <span className="video-mode-option-copy">
+              Stylized CGI cartoon rendering with depth and soft lighting.
+            </span>
+          </label>
+        </div>
+      </fieldset>
+    </div>
+  );
 }
 
 function StepResumeBar({
@@ -1916,6 +2394,7 @@ function StepGateBar({
   description,
   regenerateLabel,
   approveLabel,
+  hideRegenerate = false,
   onApprove,
   onRegenerate,
 }: {
@@ -1925,6 +2404,7 @@ function StepGateBar({
   description?: string;
   regenerateLabel?: string;
   approveLabel?: string;
+  hideRegenerate?: boolean;
   onApprove: () => void;
   onRegenerate: () => void;
 }) {
@@ -1940,9 +2420,11 @@ function StepGateBar({
           </p>
         </div>
         <div className="step-gate-actions">
-          <button type="button" className="secondary-button" onClick={onRegenerate}>
-            {regenerateLabel ?? 'Regenerate'}
-          </button>
+          {hideRegenerate ? null : (
+            <button type="button" className="secondary-button" onClick={onRegenerate}>
+              {regenerateLabel ?? 'Regenerate'}
+            </button>
+          )}
           <button type="button" className="primary-button" onClick={onApprove}>
             {approveLabel ??
               (isLastStep ? 'Finish pipeline' : 'Approve & continue')}
@@ -1965,6 +2447,7 @@ function LoadingOverlay({
   const activeStepIndex = STEPS.findIndex((step) => step.id === currentStep);
   const isSceneStep =
     currentStep === 'prompts' ||
+    currentStep === 'visual' ||
     currentStep === 'images' ||
     currentStep === 'videos' ||
     currentStep === 'audio';
@@ -2057,7 +2540,7 @@ function getLoadingMessage(
     case 'script':
       return 'Converting story into scenes...';
     case 'character':
-      return 'Defining uniform character from story and script...';
+      return 'Defining uniform characters from story and script...';
     case 'prompts':
       return `Creating video prompt for scene ${sceneProgressIndex + 1} of ${totalScenes}...`;
     case 'images':
@@ -2065,9 +2548,9 @@ function getLoadingMessage(
     case 'videos':
       return `Generating and upscaling scene ${sceneProgressIndex + 1} of ${totalScenes} to 1080p...`;
     case 'audio':
-      return `Generating narration audio for scene ${sceneProgressIndex + 1} of ${totalScenes}...`;
+      return `Generating dialogue audio for scene ${sceneProgressIndex + 1} of ${totalScenes}...`;
     case 'assembly':
-      return 'Assembling final video with narration and subtitles...';
+      return 'Assembling final video with synced dialogue audio...';
     default:
       return 'Working...';
   }
@@ -2145,7 +2628,17 @@ function formatAudioDuration(seconds: number): string {
   const totalSeconds = Math.round(seconds);
   const minutes = Math.floor(totalSeconds / 60);
   const remainder = totalSeconds % 60;
-  return `${minutes}:${String(remainder).padStart(2, '0')}`;
+  return `${minutes}:${remainder.toString().padStart(2, '0')}`;
+}
+
+function formatDialogueTimestamp(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return '0:00';
+  }
+  const totalSeconds = Math.floor(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainder = totalSeconds % 60;
+  return `${minutes}:${remainder.toString().padStart(2, '0')}`;
 }
 
 function SceneAudioLoadingState({
@@ -2170,7 +2663,7 @@ function SceneAudioLoadingState({
         <span />
       </div>
       <div className="scene-audio-loading-copy">
-        <p className="scene-audio-loading-title">Synthesizing narration</p>
+        <p className="scene-audio-loading-title">Synthesizing character voices</p>
         <p className="muted">
           {totalScenes > 0
             ? `Scene ${Math.min(sceneIndex + 1, totalScenes)} of ${totalScenes}`
@@ -2194,10 +2687,12 @@ function SceneAudioLoadingState({
 
 function SceneAudioGallery({
   scenes,
+  characters,
   onRegenerate,
   regeneratingSceneIndex,
 }: {
   scenes: SceneScript[];
+  characters: StoryCharacter[];
   onRegenerate?: (index: number) => void;
   regeneratingSceneIndex?: number | null;
 }) {
@@ -2206,8 +2701,8 @@ function SceneAudioGallery({
   return (
     <div className="scene-audio-gallery">
       <p className="scene-audio-intro muted">
-        Listen to each narration track. These lines will appear as subtitles
-        in the final video when scene clips are assembled.
+        Listen to each scene&apos;s character voices. Lines are spoken in order with
+        distinct voices and timed segments.
       </p>
       {orderedScenes.map((scene) => {
         const index = scenes.findIndex(
@@ -2219,6 +2714,7 @@ function SceneAudioGallery({
           <SceneAudioCard
             key={scene.sceneNumber}
             scene={scene}
+            characters={characters}
             isRegenerating={isRegenerating}
             onRegenerate={
               onRegenerate ? () => onRegenerate(index) : undefined
@@ -2232,10 +2728,12 @@ function SceneAudioGallery({
 
 function SceneAudioCard({
   scene,
+  characters,
   isRegenerating,
   onRegenerate,
 }: {
   scene: SceneScript;
+  characters: StoryCharacter[];
   isRegenerating: boolean;
   onRegenerate?: () => void;
 }) {
@@ -2289,8 +2787,40 @@ function SceneAudioCard({
 
         <div className="scene-audio-content">
           <div className="scene-audio-narration">
-            <span className="scene-audio-narration-label">Narration</span>
-            <p>{scene.narration}</p>
+            <span className="scene-audio-narration-label">Character voices</span>
+            {scene.dialogueSegments && scene.dialogueSegments.length > 0 ? (
+              <ul className="scene-dialogue-list">
+                {scene.dialogueSegments.map((segment, lineIndex) => (
+                  <li key={`${scene.sceneNumber}-segment-${lineIndex}`}>
+                    <span className="scene-dialogue-time">
+                      {formatDialogueTimestamp(segment.start)}–
+                      {formatDialogueTimestamp(segment.end)}
+                    </span>{' '}
+                    <span className="scene-dialogue-speaker">
+                      {segment.speaker}:
+                    </span>{' '}
+                    {segment.text}
+                  </li>
+                ))}
+              </ul>
+            ) : getSceneDialogue(scene).length > 0 ? (
+              <ul className="scene-dialogue-list">
+                {getSceneDialogue(scene).map((line, lineIndex) => (
+                  <li key={`${scene.sceneNumber}-audio-${lineIndex}`}>
+                    <span className="scene-dialogue-speaker">
+                      {line.speaker ??
+                        characters.find((entry) => entry.id === line.characterId)
+                          ?.name ??
+                        line.characterId}
+                      :
+                    </span>{' '}
+                    {line.text}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>{formatSceneDialogue(scene, characters)}</p>
+            )}
           </div>
 
           {scene.audioPath ? (
@@ -2457,6 +2987,7 @@ function ProfessionalSceneUpload({
 
 function SceneList({
   scenes,
+  characters = [],
   showPrompts,
   showImages = false,
   showVideos = false,
@@ -2466,6 +2997,7 @@ function SceneList({
   regeneratingSceneIndex,
 }: {
   scenes: SceneScript[];
+  characters?: StoryCharacter[];
   showPrompts: boolean;
   showImages?: boolean;
   showVideos?: boolean;
@@ -2540,8 +3072,25 @@ function SceneList({
             </div>
           ) : null}
           <div className="scene-field">
-            <strong>Narration</strong>
-            <p>{scene.narration}</p>
+            <strong>Dialogue</strong>
+            {getSceneDialogue(scene).length > 0 ? (
+              <ul className="scene-dialogue-list">
+                {getSceneDialogue(scene).map((line, lineIndex) => (
+                  <li key={`${scene.sceneNumber}-${lineIndex}`}>
+                    <span className="scene-dialogue-speaker">
+                      {line.speaker ??
+                        characters.find((entry) => entry.id === line.characterId)
+                          ?.name ??
+                        line.characterId}
+                      :
+                    </span>{' '}
+                    {line.text}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>{scene.narration}</p>
+            )}
           </div>
           <div className="scene-field">
             <strong>Visual</strong>

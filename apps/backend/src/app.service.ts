@@ -20,7 +20,9 @@ import { AssemblyAgent } from './agents/assembly.agent';
 import { VideoJobService } from './services/video-job.service';
 import { ImageJobService } from './services/image-job.service';
 
-import type { SceneScript, StoryLanguage, VideoGenerationMode } from './content-state';
+import type { SceneScript, SeriesVisualStyle, StoryCharacter, StoryLanguage, VideoGenerationMode } from './content-state';
+import { mergeCharacterLibraries } from './characters';
+import { SeriesService } from './services/series.service';
 
 import { normalizeStoryLanguage } from './language';
 
@@ -81,6 +83,8 @@ export class AppService {
     private readonly assemblyAgent: AssemblyAgent,
 
     private readonly audioAgent: AudioAgent,
+
+    private readonly seriesService: SeriesService,
 
   ) {}
 
@@ -150,23 +154,33 @@ export class AppService {
 
     storyLanguage?: StoryLanguage,
 
+    seriesId?: string | null,
+
+    existingCharacters?: StoryCharacter[],
+
   ): Promise<GenerateCharacterProfileResponseDto> {
 
     const language = normalizeStoryLanguage(storyLanguage);
 
-    return {
+    let library = existingCharacters ?? [];
 
-      characterAppearance: await this.characterAgent.executeProfile(
+    if (seriesId) {
+      const series = await this.seriesService.getSeries(seriesId);
+      library = mergeCharacterLibraries(series.characters, library);
+    }
 
-        story,
+    const result = await this.characterAgent.executeProfile(
+      story,
+      script,
+      language,
+      library,
+    );
 
-        script,
+    if (seriesId && result.newCharacters.length > 0) {
+      await this.seriesService.mergeCharacters(seriesId, result.newCharacters);
+    }
 
-        language,
-
-      ),
-
-    };
+    return result;
 
   }
 
@@ -176,11 +190,13 @@ export class AppService {
 
     scene: SceneScript,
 
-    characterAppearance: string,
+    characters: StoryCharacter[],
 
     videoMode: VideoGenerationMode = 'local',
 
     storyLanguage?: StoryLanguage,
+
+    visualStyle?: SeriesVisualStyle,
 
   ): Promise<GeneratePromptResponseDto> {
 
@@ -190,11 +206,13 @@ export class AppService {
 
       scene,
 
-      characterAppearance,
+      characters,
 
       videoMode,
 
       language,
+
+      visualStyle,
 
     );
 
@@ -205,8 +223,6 @@ export class AppService {
       scene: {
 
         ...scene,
-
-        characterAppearance,
 
         imagePrompt,
 
@@ -232,9 +248,12 @@ export class AppService {
 
 
 
-  startImageJob(scene: SceneScript): StartImageJobResponseDto {
+  startImageJob(
+    scene: SceneScript,
+    visualStyle?: SeriesVisualStyle,
+  ): StartImageJobResponseDto {
 
-    const job = this.imageJobService.start(scene);
+    const job = this.imageJobService.start(scene, visualStyle);
 
     return {
 
@@ -272,9 +291,12 @@ export class AppService {
 
 
 
-  startVideoJob(scene: SceneScript): StartVideoJobResponseDto {
+  startVideoJob(
+    scene: SceneScript,
+    visualStyle?: SeriesVisualStyle,
+  ): StartVideoJobResponseDto {
 
-    const job = this.videoJobService.start(scene);
+    const job = this.videoJobService.start(scene, visualStyle);
 
     return {
 
@@ -312,11 +334,14 @@ export class AppService {
 
 
 
-  async upscaleVideo(scene: SceneScript): Promise<UpscaleVideoResponseDto> {
+  async upscaleVideo(
+    scene: SceneScript,
+    visualStyle?: SeriesVisualStyle,
+  ): Promise<UpscaleVideoResponseDto> {
 
     return {
 
-      scene: await this.upscaleAgent.execute(scene),
+      scene: await this.upscaleAgent.execute(scene, visualStyle),
 
     };
 
@@ -328,6 +353,8 @@ export class AppService {
 
     scene: SceneScript,
 
+    characters: StoryCharacter[],
+
     storyLanguage?: StoryLanguage,
 
   ): Promise<GenerateAudioResponseDto> {
@@ -336,7 +363,7 @@ export class AppService {
 
     return {
 
-      scene: await this.audioAgent.execute(scene, language),
+      scene: await this.audioAgent.execute(scene, characters, language),
 
     };
 

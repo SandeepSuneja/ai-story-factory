@@ -1,6 +1,10 @@
 import { Injectable } from "@nestjs/common";
-import type { SceneScript, StoryLanguage } from "../content-state";
-import { languageOutputRule } from "../language";
+import type { DialogueLine, SceneScript, StoryLanguage } from "../content-state";
+import { inferDialogueFromNarration } from "../characters";
+import {
+  contentLanguageRule,
+  dialogueLanguageRule,
+} from "../language";
 import { QwenService } from "../services/qwen.service";
 
 const SCRIPT_MAX_TOKENS = 4096;
@@ -92,6 +96,40 @@ function extractCompleteJsonObjects(text: string): unknown[] {
   return objects;
 }
 
+function normalizeDialogue(raw: unknown): DialogueLine[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .map((entry): DialogueLine | null => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const value = entry as Record<string, unknown>;
+      const text = String(value.text ?? "").trim();
+      const speaker = String(
+        value.speaker ?? value.character ?? value.characterId ?? "",
+      ).trim();
+      if (!text || !speaker) {
+        return null;
+      }
+      return {
+        characterId: speaker.toLowerCase().replace(/\s+/g, "-"),
+        speaker,
+        text,
+      };
+    })
+    .filter((line): line is DialogueLine => line !== null);
+}
+
+function buildNarrationFromDialogue(dialogue: DialogueLine[]): string {
+  if (dialogue.length === 0) {
+    return "";
+  }
+  return dialogue.map((line) => `${line.speaker}: ${line.text}`).join("\n");
+}
+
 function normalizeScenes(raw: unknown): SceneScript[] {
   if (!Array.isArray(raw)) {
     throw new Error("Script model output is not a JSON array.");
@@ -107,14 +145,23 @@ function normalizeScenes(raw: unknown): SceneScript[] {
     }
 
     const value = scene as Record<string, unknown>;
+    const narration = String(value.narration ?? "").trim();
+    let dialogue = normalizeDialogue(value.dialogue);
+    if (dialogue.length === 0 && narration) {
+      dialogue = inferDialogueFromNarration(narration);
+    }
+    const resolvedNarration =
+      narration || buildNarrationFromDialogue(dialogue);
+
     return {
       sceneNumber: Number(value.sceneNumber ?? index + 1),
-      narration: String(value.narration ?? "").trim(),
+      narration: resolvedNarration,
       visualDescription: String(value.visualDescription ?? "").trim(),
       duration: Math.min(
         MAX_SCENE_DURATION_SECONDS,
         Math.max(1, Number(value.duration ?? 3)),
       ),
+      dialogue,
     };
   });
 }
@@ -139,15 +186,14 @@ function buildScriptPrompt(
   language: StoryLanguage,
   strict = false,
 ): string {
-  const languageRule = languageOutputRule(language);
-  const narrationField =
+  const contentRule = contentLanguageRule();
+  const dialogueRule = dialogueLanguageRule(language);
+  const dialogueField =
     language === "hi"
-      ? "spoken narration line in Hindi (Devanagari)"
-      : "spoken line for the scene";
+      ? "spoken line in Hindi (Devanagari)"
+      : "spoken line in English";
   const visualField =
-    language === "hi"
-      ? "what appears on screen, in Hindi (Devanagari)"
-      : "what appears on screen";
+    "what appears on screen in English, naming every visible character";
 
   const rules = strict
     ? `
@@ -155,32 +201,42 @@ Rules:
 - Return ONLY valid JSON.
 - Use exactly 4 to 6 scenes.
 - Each scene duration must be 3 to 6 seconds.
-- Keep each narration under 12 words.
-- Keep each visualDescription under 12 words.
-- Each visualDescription must describe ONE static photographable frame (no camera moves, morphing, on-screen text, or multiple character copies).
+- Include 2 to 4 distinct named characters across the story when possible.
+- Each scene must include a dialogue array with 2 to 4 lines where characters talk to each other.
+- Keep each dialogue line under 12 words.
+- Keep each visualDescription under 16 words.
+- Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
 - Do not truncate the JSON. Always close every string and end with ].`
     : `
 Rules:
 - Return ONLY valid JSON.
 - Use 4 to ${MAX_SCENES} scenes.
 - Each scene duration must be 3 to ${MAX_SCENE_DURATION_SECONDS} seconds.
-- Keep each narration under 18 words.
-- Keep each visualDescription under 18 words.
-- Each visualDescription must describe ONE static photographable frame (no camera moves, morphing, on-screen text, or multiple character copies).
+- Include 2 to 4 distinct named characters across the story when possible.
+- Each scene must include a dialogue array with 2 to 4 lines where characters converse naturally.
+- Keep each dialogue line under 16 words.
+- Keep each visualDescription under 20 words.
+- Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
 - Escape double quotes inside strings.
 - Do not truncate the JSON. Always close every string and end with ].`;
 
-  return `Convert the story into short video scenes.${rules}
-${languageRule}
-- narration and visualDescription must follow the language rule above.
+  return `Convert the story into short video scenes with character dialogue.${rules}
+${contentRule}
+${dialogueRule}
+- narration and visualDescription must be in English.
+- dialogue.text must follow the dialogue language rule above.
+- Use the same speaker names consistently across all scenes.
 
 Use this exact shape:
 [
   {
     "sceneNumber": 1,
     "duration": 6,
-    "narration": "${narrationField}",
-    "visualDescription": "${visualField}"
+    "visualDescription": "${visualField}",
+    "dialogue": [
+      { "speaker": "Maya", "text": "${dialogueField}" },
+      { "speaker": "Raj", "text": "${dialogueField}" }
+    ]
   }
 ]
 

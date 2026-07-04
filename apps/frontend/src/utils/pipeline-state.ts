@@ -1,8 +1,8 @@
-import type { PipelineStep } from '../types/content';
+import type { PipelineStep, StoryCharacter } from '../types/content';
 
 import type { ProjectState } from '../types/project';
 
-const IMAGES_STEP_ORDER_INDEX = 5;
+const IMAGES_STEP_ORDER_INDEX = 6;
 
 export function isImagesStepComplete(
   state: Pick<ProjectState, 'promptedScenes' | 'imageScenes'>,
@@ -71,6 +71,12 @@ export interface PipelineUiState {
 
   videoGenerationMode: ProjectState['videoGenerationMode'];
 
+  seriesId: string | null;
+
+  sourceProjectId: string | null;
+
+  visualStyle: ProjectState['visualStyle'];
+
   currentStep: PipelineStep;
 
   reviewStep: PipelineStep | null;
@@ -81,7 +87,7 @@ export interface PipelineUiState {
 
   scriptScenes: ProjectState['scriptScenes'];
 
-  characterAppearance: string | null;
+  characters: StoryCharacter[];
 
   promptedScenes: ProjectState['promptedScenes'];
 
@@ -228,11 +234,13 @@ export function getResumeProgressLabel(
   step: PipelineStep,
 
   state: Pick<
-
     ProjectState,
-
-    'scriptScenes' | 'promptedScenes' | 'imageScenes' | 'videoScenes' | 'audioScenes'
-
+    | 'scriptScenes'
+    | 'promptedScenes'
+    | 'imageScenes'
+    | 'videoScenes'
+    | 'audioScenes'
+    | 'finalVideoPath'
   >,
 
 ): string | null {
@@ -281,6 +289,12 @@ export function serializePipelineState(state: PipelineUiState): ProjectState {
 
     videoGenerationMode: state.videoGenerationMode,
 
+    seriesId: state.seriesId,
+
+    sourceProjectId: state.sourceProjectId ?? null,
+
+    visualStyle: state.visualStyle,
+
     currentStep: state.currentStep,
 
     reviewStep: state.reviewStep,
@@ -291,7 +305,7 @@ export function serializePipelineState(state: PipelineUiState): ProjectState {
 
     scriptScenes: state.scriptScenes,
 
-    characterAppearance: state.characterAppearance,
+    characters: state.characters,
 
     promptedScenes: state.promptedScenes,
 

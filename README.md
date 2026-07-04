@@ -1,6 +1,6 @@
 # AI Story Factory
 
-AI Story Factory turns a short topic into a finished short video: idea, narrative, script, character profile, scene images, scene clips upscaled to 1080p, narration audio, and a final assembled MP4 with burned-in subtitles. Text generation runs through a local **Qwen3-14B Q4_K_M** (GGUF) service; images through **FLUX**; local scene video through **Wan2.1 I2V**; upscaling, TTS, and final assembly through lightweight Python/ffmpeg services. Each pipeline step pauses for your review — approve to continue or regenerate until satisfied.
+AI Story Factory turns a short topic into a finished short video: idea, narrative, script, character profiles, scene images, scene clips upscaled to 1080p, dialogue audio, and a final assembled MP4 with synced voices. Text generation runs through a local **Qwen3-14B Q4_K_M** (GGUF) service; images through **FLUX**; local scene video through **Wan2.1 I2V**; upscaling, TTS, and final assembly through lightweight Python/ffmpeg services. Each pipeline step pauses for your review — approve to continue or regenerate until satisfied.
 
 ## Features
 
@@ -72,7 +72,7 @@ The UI runs these steps in order. **Each step pauses for review** — approve th
 | 6. Images | `ImageAgent` | PNG per scene via FLUX (async job, regenerate per scene) |
 | 7. Scene videos (1080p) | `VideoAgent` + `UpscaleAgent` (local) or upload + upscale (professional) | 1080p MP4 per scene |
 | 8. Audio | `AudioAgent` | Narration WAV per scene via TTS (Edge TTS for Hindi) |
-| 9. Assembly | `AssemblyAgent` | Final story video with synced audio and subtitles |
+| 9. Assembly | `AssemblyAgent` | Final story video with synced dialogue audio |
 
 A LangGraph workflow (`content.graph.ts`) also chains **idea → story → script** for programmatic use.
 
@@ -326,7 +326,7 @@ From the backend folder: `npm run upscale:dev`
 
 ### 8. Assembly service (Python)
 
-Joins upscaled scene clips, syncs narration, and burns in subtitles.
+Joins upscaled scene clips and syncs dialogue audio.
 
 ```bash
 cd apps/backend/assembly-service
@@ -341,7 +341,7 @@ Service runs at **http://127.0.0.1:7863**.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ASSEMBLY_PORT` | `7863` | Bind port |
-| `ASSEMBLY_SUBTITLES` | `true` | Burn narration as subtitles |
+| `ASSEMBLY_SUBTITLES` | `false` | Optional burned-in subtitles (off by default) |
 | `ASSEMBLY_SUBTITLE_FONT_SIZE` | `22` | Subtitle font size |
 
 From the backend folder: `npm run assembly:dev`

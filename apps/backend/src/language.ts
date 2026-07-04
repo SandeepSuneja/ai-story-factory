@@ -5,32 +5,39 @@ export function normalizeStoryLanguage(value?: string): StoryLanguage {
 }
 
 export function languageLabel(language: StoryLanguage): string {
-  return language === 'hi' ? 'Hindi' : 'English';
+  return language === 'hi' ? 'Hindi dialogue' : 'English';
 }
 
+/** Idea, story, narration, visual descriptions, character profiles, prompts metadata. */
+export function contentLanguageRule(): string {
+  return 'Write all narrative content in English: idea, story prose, scene narration, visualDescription, character names, roles, and appearance fields.';
+}
+
+/** Spoken lines only — the one place Hindi is allowed when storyLanguage is hi. */
+export function dialogueLanguageRule(language: StoryLanguage): string {
+  if (language === 'hi') {
+    return 'Write ONLY dialogue.text (character spoken lines) in Hindi using Devanagari script (हिन्दी). Keep narration and visualDescription in English.';
+  }
+
+  return 'Write dialogue.text in English.';
+}
+
+/** @deprecated Prefer contentLanguageRule() or dialogueLanguageRule() explicitly. */
 export function languageOutputRule(language: StoryLanguage): string {
   if (language === 'hi') {
-    return 'Write ALL output in Hindi using Devanagari script (हिन्दी). Do not use English except unavoidable proper nouns or brand names.';
+    return `${contentLanguageRule()}\n${dialogueLanguageRule(language)}`;
   }
 
   return 'Write all output in English.';
 }
 
-export function imagePromptLanguageRule(language: StoryLanguage): string {
-  if (language === 'hi') {
-    return 'Write imagePrompt in English (required for the image model) but accurately depict the Hindi scene, characters, and setting. Translate character appearance traits to concise English tags in imagePrompt only.';
-  }
-
+export function imagePromptLanguageRule(_language: StoryLanguage): string {
   return 'Write imagePrompt in English.';
 }
 
 export function videoPromptLanguageRule(
-  language: StoryLanguage,
+  _language: StoryLanguage,
   _videoMode: VideoGenerationMode,
 ): string {
-  if (language === 'hi') {
-    return 'Write videoPrompt in English (required for video models). Motion should match the Hindi scene described in narration and visualDescription.';
-  }
-
   return 'Write videoPrompt in English.';
 }

@@ -1,12 +1,29 @@
 import { Injectable } from "@nestjs/common";
 import { join } from "path";
+import type { DialogueSegment, SubtitleCue } from "../content-state";
 import { inferenceFetch } from "./inference-fetch";
+
+export interface DialogueAudioLine {
+  text: string;
+  voice: string;
+  speaker: string;
+  characterId?: string;
+}
 
 interface TtsGenerateResponse {
   filename: string;
   audioPath: string;
   backend: string;
   durationSeconds: number;
+}
+
+interface TtsDialogueResponse {
+  filename: string;
+  audioPath: string;
+  backend: string;
+  durationSeconds: number;
+  subtitleCues: SubtitleCue[];
+  dialogueSegments: DialogueSegment[];
 }
 
 @Injectable()
@@ -89,5 +106,43 @@ export class TtsService {
 
     const result = (await response.json()) as TtsGenerateResponse;
     return result.audioPath;
+  }
+
+  async generateDialogueAudio(
+    lines: DialogueAudioLine[],
+    sceneNumber: number,
+    language = "en",
+  ): Promise<{
+    audioPath: string;
+    subtitleCues: SubtitleCue[];
+    dialogueSegments: DialogueSegment[];
+  }> {
+    await this.assertServiceReachable();
+
+    const response = await inferenceFetch(`${this.serviceUrl}/generate/dialogue`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        scene_number: sceneNumber,
+        language,
+        lines,
+      }),
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(
+        message || `TTS dialogue service failed with status ${response.status}`,
+      );
+    }
+
+    const result = (await response.json()) as TtsDialogueResponse;
+    return {
+      audioPath: result.audioPath,
+      subtitleCues: result.subtitleCues,
+      dialogueSegments: result.dialogueSegments ?? [],
+    };
   }
 }

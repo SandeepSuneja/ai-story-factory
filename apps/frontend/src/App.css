@@ -797,15 +797,23 @@
 }
 
 .character-profile {
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   padding: 1rem;
   border-radius: 1rem;
   border: 1px solid var(--accent-border);
   background: var(--accent-bg);
 }
 
+.character-profile-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+
 .character-profile strong {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-bottom: 0.5rem;
   color: var(--text-h);
   font-size: 0.85rem;
@@ -813,9 +821,89 @@
   letter-spacing: 0.06em;
 }
 
+.character-role {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.16);
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.character-voice {
+  margin-top: 0.65rem !important;
+  font-size: 0.82rem;
+}
+
 .character-profile p {
   margin: 0;
   line-height: 1.7;
+}
+
+.scene-dialogue-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.scene-dialogue-list li {
+  line-height: 1.55;
+}
+
+.scene-dialogue-time {
+  color: var(--muted, #8b949e);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.story-reuse-toolbar,
+.visual-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.visual-settings-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.character-series-note {
+  grid-column: 1 / -1;
+  margin: 0 0 0.25rem;
+}
+
+.series-list {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.series-filter-button {
+  display: grid;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.45);
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.series-filter-button.active {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--text-h);
+}
+
+.project-sidebar-header-spaced {
+  margin-top: 0.5rem;
 }
 
 .stepper-item {

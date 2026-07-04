@@ -1,20 +1,28 @@
 import type {
   PipelineStep,
   SceneScript,
+  SeriesVisualStyle,
+  StoryCharacter,
   StoryLanguage,
   VideoGenerationMode,
 } from '../content-state';
+import { mergeVisualStyle } from './series.model';
 
 export interface ProjectState {
   topic: string;
   storyLanguage: StoryLanguage;
   videoGenerationMode: VideoGenerationMode;
+  seriesId?: string | null;
+  sourceProjectId?: string | null;
+  visualStyle?: SeriesVisualStyle;
   currentStep: PipelineStep;
   reviewStep: PipelineStep | null;
   idea: string | null;
   story: string | null;
   scriptScenes: SceneScript[];
-  characterAppearance: string | null;
+  characters: StoryCharacter[];
+  /** @deprecated Legacy single-character field */
+  characterAppearance?: string | null;
   promptedScenes: SceneScript[];
   imageScenes: SceneScript[];
   videoScenes: SceneScript[];
@@ -29,6 +37,7 @@ export interface ProjectState {
 export interface ProjectRecord {
   id: string;
   name: string;
+  seriesId?: string | null;
   createdAt: string;
   updatedAt: string;
   state: ProjectState;
@@ -38,12 +47,14 @@ export interface ProjectSummary {
   id: string;
   name: string;
   topic: string;
+  seriesId?: string | null;
   currentStep: PipelineStep;
   updatedAt: string;
 }
 
 export class CreateProjectRequestDto {
   name?: string;
+  seriesId?: string | null;
   state?: Partial<ProjectState>;
 }
 
@@ -57,12 +68,15 @@ export function createEmptyProjectState(): ProjectState {
     topic: '',
     storyLanguage: 'en',
     videoGenerationMode: 'local',
+    seriesId: null,
+    sourceProjectId: null,
+    visualStyle: mergeVisualStyle(),
     currentStep: 'topic',
     reviewStep: null,
     idea: null,
     story: null,
     scriptScenes: [],
-    characterAppearance: null,
+    characters: [],
     promptedScenes: [],
     imageScenes: [],
     videoScenes: [],
@@ -79,6 +93,7 @@ export function createEmptyProjectState(): ProjectState {
       7: false,
       8: false,
       9: false,
+      10: false,
     },
     failedStep: null,
     pipelineError: null,

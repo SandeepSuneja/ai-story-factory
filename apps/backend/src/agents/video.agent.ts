@@ -1,7 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { mkdir } from "fs/promises";
-import type { SceneScript } from "../content-state";
+import type { SceneScript, SeriesVisualStyle } from "../content-state";
+import { buildSpeakingMotionHint } from "../characters";
 import { HunyuanService } from "../services/hunyuan.service";
+import { mergeVisualStyle } from "../visual-style";
 
 const MAX_VIDEO_WORDS = 45;
 
@@ -9,7 +11,10 @@ const MAX_VIDEO_WORDS = 45;
 export class VideoAgent {
   constructor(private readonly hunyuan: HunyuanService) {}
 
-  async execute(scene: SceneScript): Promise<SceneScript> {
+  async execute(
+    scene: SceneScript,
+    visualStyle?: SeriesVisualStyle,
+  ): Promise<SceneScript> {
     const imagePath = scene.imagePath?.trim();
     if (!imagePath) {
       throw new Error(
@@ -18,6 +23,7 @@ export class VideoAgent {
     }
 
     const motionPrompt = this.buildMotionPrompt(scene);
+    const orientation = mergeVisualStyle(visualStyle).orientation;
 
     await mkdir(this.hunyuan.getVideoStorageDirectory(), { recursive: true });
 
@@ -26,6 +32,7 @@ export class VideoAgent {
       scene.sceneNumber,
       imagePath,
       scene.duration,
+      orientation,
     );
 
     return {
@@ -35,9 +42,13 @@ export class VideoAgent {
   }
 
   private buildMotionPrompt(scene: SceneScript): string {
+    const speakingHint = buildSpeakingMotionHint(scene);
     const videoPrompt = scene.videoPrompt?.trim();
     if (videoPrompt) {
-      return this.compactForWan(videoPrompt, scene.duration, scene.visualDescription);
+      return this.appendSpeakingHint(
+        this.compactForWan(videoPrompt, scene.duration, scene.visualDescription),
+        speakingHint,
+      );
     }
 
     const visual = scene.visualDescription?.trim();
@@ -46,7 +57,10 @@ export class VideoAgent {
         scene.duration <= 4
           ? "Very slow subtle motion."
           : "Slow smooth continuous motion.";
-      return `${hint} ${visual}. Gentle cinematic camera push-in.`;
+      return this.appendSpeakingHint(
+        `${hint} ${visual}. Gentle cinematic camera push-in.`,
+        speakingHint,
+      );
     }
 
     throw new Error(
@@ -90,5 +104,19 @@ export class VideoAgent {
     }
 
     return videoPrompt.trim();
+  }
+
+  private appendSpeakingHint(prompt: string, speakingHint: string): string {
+    if (!speakingHint) {
+      return prompt;
+    }
+
+    const combined = `${prompt} ${speakingHint}`.replace(/\s+/g, " ").trim();
+    const words = combined.split(/\s+/).filter(Boolean);
+    if (words.length <= MAX_VIDEO_WORDS) {
+      return combined;
+    }
+
+    return words.slice(0, MAX_VIDEO_WORDS).join(" ").replace(/[,;:\-–—]+$/, "");
   }
 }

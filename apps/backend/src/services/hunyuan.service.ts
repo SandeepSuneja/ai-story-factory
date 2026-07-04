@@ -1,5 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { join } from "path";
+import type { SeriesOrientation } from "../content-state";
+import { getGenerationDimensions } from "../visual-style";
 import { inferenceFetch, videoInferenceFetch } from "./inference-fetch";
 
 interface HunyuanGenerateResponse {
@@ -189,9 +191,11 @@ export class HunyuanService {
     sceneNumber: number,
     imagePath: string,
     durationSeconds?: number,
+    orientation: SeriesOrientation = "landscape",
   ): Promise<string> {
     await this.assertServiceReachable();
 
+    const { width, height } = getGenerationDimensions(orientation);
     let response: Awaited<ReturnType<typeof videoInferenceFetch>>;
     try {
       response = await videoInferenceFetch(`${this.serviceUrl}/generate`, {
@@ -204,6 +208,9 @@ export class HunyuanService {
           scene_number: sceneNumber,
           image_filename: this.resolveImageFilename(imagePath),
           duration_seconds: durationSeconds,
+          orientation,
+          width,
+          height,
         }),
       });
     } catch (error) {

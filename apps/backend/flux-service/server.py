@@ -160,6 +160,9 @@ def prepare_flux_prompt(prompt: str, pipeline: FluxPipeline) -> str:
 class GenerateImageRequest(BaseModel):
     prompt: str = Field(min_length=1)
     scene_number: int = Field(ge=1)
+    orientation: str = Field(default="landscape")
+    width: int | None = Field(default=None, ge=256, le=2048)
+    height: int | None = Field(default=None, ge=256, le=2048)
 
 
 class GenerateImageResponse(BaseModel):
@@ -203,14 +206,20 @@ def generate_image(request: GenerateImageRequest) -> GenerateImageResponse:
 
     filename = f"scene-{request.scene_number}-{uuid.uuid4().hex}.png"
     output_path = STORAGE_DIR / filename
+    width = request.width or (
+        IMAGE_HEIGHT if request.orientation == "portrait" else IMAGE_WIDTH
+    )
+    height = request.height or (
+        IMAGE_WIDTH if request.orientation == "portrait" else IMAGE_HEIGHT
+    )
 
     try:
         flux_prompt = prepare_flux_prompt(request.prompt, pipe)
         with torch.inference_mode():
             result = pipe(
                 flux_prompt,
-                height=IMAGE_HEIGHT,
-                width=IMAGE_WIDTH,
+                height=height,
+                width=width,
                 guidance_scale=GUIDANCE_SCALE,
                 num_inference_steps=NUM_INFERENCE_STEPS,
             )

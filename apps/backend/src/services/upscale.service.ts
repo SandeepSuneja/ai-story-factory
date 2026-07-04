@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { unlink } from "fs/promises";
 import { join } from "path";
+import type { SeriesOrientation } from "../content-state";
+import { getUpscaleDimensions } from "../visual-style";
 import { inferenceFetch } from "./inference-fetch";
 
 interface UpscaleVideoResponse {
@@ -75,9 +77,11 @@ export class UpscaleService {
   async upscaleVideo(
     videoPath: string,
     sceneNumber: number,
+    orientation: SeriesOrientation = "landscape",
   ): Promise<string> {
     await this.assertServiceReachable();
 
+    const { width, height } = getUpscaleDimensions(orientation);
     const response = await inferenceFetch(`${this.serviceUrl}/upscale`, {
       method: "POST",
       headers: {
@@ -86,6 +90,9 @@ export class UpscaleService {
       body: JSON.stringify({
         video_filename: this.resolveVideoFilename(videoPath),
         scene_number: sceneNumber,
+        orientation,
+        target_width: width,
+        target_height: height,
       }),
     });
 
