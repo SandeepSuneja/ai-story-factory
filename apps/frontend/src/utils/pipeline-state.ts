@@ -75,6 +75,10 @@ export interface PipelineUiState {
 
   sourceProjectId: string | null;
 
+  knowledgeSourceId: string | null;
+
+  sourceFidelityMode: boolean;
+
   visualStyle: ProjectState['visualStyle'];
 
   currentStep: PipelineStep;
@@ -88,6 +92,8 @@ export interface PipelineUiState {
   scriptScenes: ProjectState['scriptScenes'];
 
   characters: StoryCharacter[];
+
+  castReferenceImagePath: string | null;
 
   promptedScenes: ProjectState['promptedScenes'];
 
@@ -293,6 +299,10 @@ export function serializePipelineState(state: PipelineUiState): ProjectState {
 
     sourceProjectId: state.sourceProjectId ?? null,
 
+    knowledgeSourceId: state.knowledgeSourceId ?? null,
+
+    sourceFidelityMode: state.sourceFidelityMode ?? false,
+
     visualStyle: state.visualStyle,
 
     currentStep: state.currentStep,
@@ -306,6 +316,8 @@ export function serializePipelineState(state: PipelineUiState): ProjectState {
     scriptScenes: state.scriptScenes,
 
     characters: state.characters,
+
+    castReferenceImagePath: state.castReferenceImagePath,
 
     promptedScenes: state.promptedScenes,
 

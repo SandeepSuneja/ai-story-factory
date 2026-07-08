@@ -50,6 +50,8 @@ export interface StoryCharacter {
   role: string;
   appearance: string;
   voice: string;
+  /** Canonical portrait used as a visual reference for scene image generation */
+  referenceImagePath?: string;
 }
 
 export type SeriesOrientation = 'landscape' | 'portrait';

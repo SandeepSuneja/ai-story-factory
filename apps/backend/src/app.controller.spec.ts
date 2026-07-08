@@ -11,6 +11,10 @@ import { MediaUploadService } from './services/media-upload.service';
 import { StoryAgent } from './agents/story.agent';
 import { VideoJobService } from './services/video-job.service';
 import { ImageJobService } from './services/image-job.service';
+import { CharacterPortraitService } from './services/character-portrait.service';
+import { CastSheetService } from './services/cast-sheet.service';
+import { SeriesService } from './services/series.service';
+import { RetrievalService } from './services/retrieval.service';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { FluxService } from './services/flux.service';
@@ -42,6 +46,22 @@ describe('AppController', () => {
         {
           provide: ImageJobService,
           useValue: { start: jest.fn(), get: jest.fn() },
+        },
+        {
+          provide: CharacterPortraitService,
+          useValue: { ensurePortraits: jest.fn(), generatePortrait: jest.fn() },
+        },
+        {
+          provide: CastSheetService,
+          useValue: { ensureCastSheet: jest.fn() },
+        },
+        {
+          provide: SeriesService,
+          useValue: { getSeries: jest.fn(), mergeCharacters: jest.fn() },
+        },
+        {
+          provide: RetrievalService,
+          useValue: { buildContext: jest.fn(), buildSceneQuery: jest.fn() },
         },
         {
           provide: MediaUploadService,

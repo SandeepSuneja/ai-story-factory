@@ -1,6 +1,8 @@
 import type {
   GenerateCharacterProfileRequest,
   GenerateCharacterProfileResponse,
+  EnsureCharacterPortraitsRequest,
+  EnsureCharacterPortraitsResponse,
   GenerateIdeaRequest,
   GenerateIdeaResponse,
   GenerateImageRequest,
@@ -94,6 +96,12 @@ export function generateCharacterProfile(
   request: GenerateCharacterProfileRequest,
 ): Promise<GenerateCharacterProfileResponse> {
   return postJson('/generate/character/profile', request);
+}
+
+export function ensureCharacterPortraits(
+  request: EnsureCharacterPortraitsRequest,
+): Promise<EnsureCharacterPortraitsResponse> {
+  return postJson('/generate/character/portraits', request);
 }
 
 export function generatePrompt(

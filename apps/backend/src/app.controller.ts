@@ -18,6 +18,8 @@ import {
   GenerateIdeaResponseDto,
   GenerateImageRequestDto,
   GenerateImageResponseDto,
+  EnsureCharacterPortraitsRequestDto,
+  EnsureCharacterPortraitsResponseDto,
   StartImageJobResponseDto,
   ImageJobStatusResponseDto,
   GeneratePromptRequestDto,
@@ -54,21 +56,36 @@ export class AppController {
   generateIdea(
     @Body() body: GenerateIdeaRequestDto,
   ): Promise<GenerateIdeaResponseDto> {
-    return this.appService.generateIdea(body.topic, body.storyLanguage);
+    return this.appService.generateIdea(
+      body.topic,
+      body.storyLanguage,
+      body.knowledgeSourceId,
+      body.sourceFidelityMode,
+    );
   }
 
   @Post('generate/story')
   generateStory(
     @Body() body: GenerateStoryRequestDto,
   ): Promise<GenerateStoryResponseDto> {
-    return this.appService.generateStory(body.idea, body.storyLanguage);
+    return this.appService.generateStory(
+      body.idea,
+      body.storyLanguage,
+      body.knowledgeSourceId,
+      body.sourceFidelityMode,
+    );
   }
 
   @Post('generate/script')
   generateScript(
     @Body() body: GenerateScriptRequestDto,
   ): Promise<GenerateScriptResponseDto> {
-    return this.appService.generateScript(body.story, body.storyLanguage);
+    return this.appService.generateScript(
+      body.story,
+      body.storyLanguage,
+      body.knowledgeSourceId,
+      body.sourceFidelityMode,
+    );
   }
 
   @Post('generate/character/profile')
@@ -81,6 +98,9 @@ export class AppController {
       body.storyLanguage,
       body.seriesId,
       body.existingCharacters,
+      body.visualStyle,
+      body.knowledgeSourceId,
+      body.sourceFidelityMode,
     );
   }
 
@@ -94,6 +114,19 @@ export class AppController {
       body.videoMode ?? 'local',
       body.storyLanguage,
       body.visualStyle,
+      body.knowledgeSourceId,
+      body.sourceFidelityMode,
+    );
+  }
+
+  @Post('generate/character/portraits')
+  ensureCharacterPortraits(
+    @Body() body: EnsureCharacterPortraitsRequestDto,
+  ): Promise<EnsureCharacterPortraitsResponseDto> {
+    return this.appService.ensureCharacterPortraits(
+      body.characters,
+      body.visualStyle,
+      body.seriesId,
     );
   }
 
@@ -101,7 +134,12 @@ export class AppController {
   startImageJob(
     @Body() body: GenerateImageRequestDto,
   ): StartImageJobResponseDto {
-    return this.appService.startImageJob(body.scene, body.visualStyle);
+    return this.appService.startImageJob(
+      body.scene,
+      body.visualStyle,
+      body.characters ?? [],
+      body.castReferenceImagePath,
+    );
   }
 
   @Get('generate/image/:jobId')

@@ -19,10 +19,14 @@ import { AssemblyAgent } from './agents/assembly.agent';
 
 import { VideoJobService } from './services/video-job.service';
 import { ImageJobService } from './services/image-job.service';
+import { CharacterPortraitService } from './services/character-portrait.service';
+import { CastSheetService } from './services/cast-sheet.service';
 
 import type { SceneScript, SeriesVisualStyle, StoryCharacter, StoryLanguage, VideoGenerationMode } from './content-state';
 import { mergeCharacterLibraries } from './characters';
 import { SeriesService } from './services/series.service';
+import { RetrievalService } from './services/retrieval.service';
+import type { SourceFidelityContext } from './source-fidelity';
 
 import { normalizeStoryLanguage } from './language';
 
@@ -33,6 +37,10 @@ import {
   GenerateIdeaResponseDto,
 
   GenerateImageResponseDto,
+
+  EnsureCharacterPortraitsRequestDto,
+
+  EnsureCharacterPortraitsResponseDto,
 
   GeneratePromptResponseDto,
 
@@ -78,6 +86,10 @@ export class AppService {
 
     private readonly imageJobService: ImageJobService,
 
+    private readonly characterPortraitService: CharacterPortraitService,
+
+    private readonly castSheetService: CastSheetService,
+
     private readonly upscaleAgent: UpscaleAgent,
 
     private readonly assemblyAgent: AssemblyAgent,
@@ -85,6 +97,8 @@ export class AppService {
     private readonly audioAgent: AudioAgent,
 
     private readonly seriesService: SeriesService,
+
+    private readonly retrievalService: RetrievalService,
 
   ) {}
 
@@ -96,6 +110,29 @@ export class AppService {
 
   }
 
+  private shouldUseSourceFidelity(
+    sourceFidelityMode?: boolean,
+    knowledgeSourceId?: string | null,
+  ): boolean {
+    return Boolean(sourceFidelityMode && knowledgeSourceId?.trim());
+  }
+
+  private async resolveSourceContext(
+    query: string,
+    knowledgeSourceId?: string | null,
+    sourceFidelityMode?: boolean,
+  ): Promise<SourceFidelityContext | undefined> {
+    if (!this.shouldUseSourceFidelity(sourceFidelityMode, knowledgeSourceId)) {
+      return undefined;
+    }
+
+    return this.retrievalService.buildContext(
+      knowledgeSourceId,
+      query,
+      Number.parseInt(process.env.RAG_DEFAULT_TOP_K ?? '6', 10) || 6,
+    );
+  }
+
 
 
   async generateIdea(
@@ -104,11 +141,23 @@ export class AppService {
 
     storyLanguage?: StoryLanguage,
 
+    knowledgeSourceId?: string | null,
+
+    sourceFidelityMode?: boolean,
+
   ): Promise<GenerateIdeaResponseDto> {
 
     const language = normalizeStoryLanguage(storyLanguage);
 
-    return { idea: await this.ideaAgent.execute(topic, language) };
+    const sourceContext = await this.resolveSourceContext(
+      topic,
+      knowledgeSourceId,
+      sourceFidelityMode,
+    );
+
+    return {
+      idea: await this.ideaAgent.execute(topic, language, sourceContext),
+    };
 
   }
 
@@ -120,11 +169,23 @@ export class AppService {
 
     storyLanguage?: StoryLanguage,
 
+    knowledgeSourceId?: string | null,
+
+    sourceFidelityMode?: boolean,
+
   ): Promise<GenerateStoryResponseDto> {
 
     const language = normalizeStoryLanguage(storyLanguage);
 
-    return { story: await this.storyAgent.execute(idea, language) };
+    const sourceContext = await this.resolveSourceContext(
+      idea,
+      knowledgeSourceId,
+      sourceFidelityMode,
+    );
+
+    return {
+      story: await this.storyAgent.execute(idea, language, sourceContext),
+    };
 
   }
 
@@ -136,11 +197,21 @@ export class AppService {
 
     storyLanguage?: StoryLanguage,
 
+    knowledgeSourceId?: string | null,
+
+    sourceFidelityMode?: boolean,
+
   ): Promise<GenerateScriptResponseDto> {
 
     const language = normalizeStoryLanguage(storyLanguage);
 
-    return { script: await this.scriptAgent.execute(story, language) };
+    const sourceContext = await this.resolveSourceContext(
+      story,
+      knowledgeSourceId,
+      sourceFidelityMode,
+    );
+
+    return { script: await this.scriptAgent.execute(story, language, sourceContext) };
 
   }
 
@@ -158,9 +229,21 @@ export class AppService {
 
     existingCharacters?: StoryCharacter[],
 
+    visualStyle?: SeriesVisualStyle,
+
+    knowledgeSourceId?: string | null,
+
+    sourceFidelityMode?: boolean,
+
   ): Promise<GenerateCharacterProfileResponseDto> {
 
     const language = normalizeStoryLanguage(storyLanguage);
+
+    const sourceContext = await this.resolveSourceContext(
+      story,
+      knowledgeSourceId,
+      sourceFidelityMode,
+    );
 
     let library = existingCharacters ?? [];
 
@@ -174,13 +257,70 @@ export class AppService {
       script,
       language,
       library,
+      sourceContext,
     );
 
-    if (seriesId && result.newCharacters.length > 0) {
-      await this.seriesService.mergeCharacters(seriesId, result.newCharacters);
+    let characters = result.characters;
+    let castReferenceImagePath: string | undefined;
+
+    if (characters.length > 0) {
+      characters = await this.characterPortraitService.ensurePortraits(
+        characters,
+        visualStyle,
+      );
+      castReferenceImagePath = await this.castSheetService.ensureCastSheet(
+        characters,
+        visualStyle,
+      );
     }
 
-    return result;
+    if (seriesId && result.newCharacters.length > 0) {
+      await this.seriesService.mergeCharacters(seriesId, characters);
+    }
+
+    return {
+      ...result,
+      characters,
+      castReferenceImagePath,
+    };
+
+  }
+
+
+
+  async ensureCharacterPortraits(
+
+    characters: StoryCharacter[],
+
+    visualStyle?: SeriesVisualStyle,
+
+    seriesId?: string | null,
+
+  ): Promise<EnsureCharacterPortraitsResponseDto> {
+
+    const updated = await this.characterPortraitService.ensurePortraits(
+
+      characters,
+
+      visualStyle,
+
+    );
+
+    const castReferenceImagePath = await this.castSheetService.ensureCastSheet(
+
+      updated,
+
+      visualStyle,
+
+    );
+
+    if (seriesId) {
+
+      await this.seriesService.mergeCharacters(seriesId, updated);
+
+    }
+
+    return { characters: updated, castReferenceImagePath };
 
   }
 
@@ -198,9 +338,19 @@ export class AppService {
 
     visualStyle?: SeriesVisualStyle,
 
+    knowledgeSourceId?: string | null,
+
+    sourceFidelityMode?: boolean,
+
   ): Promise<GeneratePromptResponseDto> {
 
     const language = normalizeStoryLanguage(storyLanguage);
+
+    const sourceContext = await this.resolveSourceContext(
+      this.retrievalService.buildSceneQuery(scene),
+      knowledgeSourceId,
+      sourceFidelityMode,
+    );
 
     const { imagePrompt, videoPrompt } = await this.promptAgent.execute(
 
@@ -213,6 +363,8 @@ export class AppService {
       language,
 
       visualStyle,
+
+      sourceContext,
 
     );
 
@@ -251,9 +403,16 @@ export class AppService {
   startImageJob(
     scene: SceneScript,
     visualStyle?: SeriesVisualStyle,
+    characters: StoryCharacter[] = [],
+    castReferenceImagePath?: string,
   ): StartImageJobResponseDto {
 
-    const job = this.imageJobService.start(scene, visualStyle);
+    const job = this.imageJobService.start(
+      scene,
+      visualStyle,
+      characters,
+      castReferenceImagePath,
+    );
 
     return {
 

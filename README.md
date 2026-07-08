@@ -12,6 +12,7 @@ AI Story Factory turns a short topic into a finished short video: idea, narrativ
 | **Video generation mode** | **Local** — Wan2.1 I2V per scene, then auto-upscale to 1080p. **Professional** — upload clips from external tools (Kling, Veo, Runway, etc.), then auto-upscale |
 | **Async generation jobs** | Image and video steps return a `jobId` immediately; the UI polls until each scene completes (avoids proxy timeouts on long FLUX/Wan runs) |
 | **Project persistence** | Save/resume pipeline progress as JSON under `storage/projects/` |
+| **Source fidelity (RAG + QA)** | Index canonical texts (e.g. Ramayana), retrieve relevant excerpts, and constrain idea → prompt generation to the source without invented plot changes |
 | **Long-running timeouts** | FLUX and Wan requests default to 48 h; Vite and NestJS proxy timeouts match |
 
 ## Project structure
@@ -25,6 +26,7 @@ ai-story-factory/
     │   │   ├── graphs/   LangGraph content pipeline (idea → story → script)
     │   │   └── services/ Qwen, FLUX, Wan, upscale, TTS, assembly, image/video job queues
     │   ├── qwen-service/     Python FastAPI — Qwen3-14B text generation (:8090)
+    │   ├── rag-service/      Python FastAPI — ChromaDB RAG + embeddings (:8091)
     │   ├── flux-service/     Python FastAPI — FLUX image generation (:7860)
     │   ├── hunyuan-service/  Python FastAPI — Wan2.1 I2V (:7861)
     │   ├── tts-service/      Python FastAPI — narration TTS (:7862)
@@ -43,6 +45,7 @@ flowchart LR
     UI[Frontend<br/>React + Vite<br/>:5173] -->|/api/*| API[NestJS Backend<br/>:3000]
     UI -->|/images/* /videos/* /audio/*| API
     API -->|text| Qwen[Qwen<br/>:8090]
+    API -->|retrieve| RAG[RAG<br/>:8091]
     API -->|images| FLUX[FLUX<br/>:7860]
     API -->|I2V clips| Wan[Wan2.1<br/>:7861]
     API -->|1080p upscale| Upscale[Upscale<br/>:7864]
@@ -138,6 +141,7 @@ Edit `apps/backend/.env`:
 ```env
 FRONTEND_URL=http://localhost:5173
 QWEN_SERVICE_URL=http://127.0.0.1:8090
+RAG_SERVICE_URL=http://127.0.0.1:8091
 FLUX_SERVICE_URL=http://127.0.0.1:7860
 HUNYUAN_SERVICE_URL=http://127.0.0.1:7861
 TTS_SERVICE_URL=http://127.0.0.1:7862
@@ -225,6 +229,40 @@ From the backend folder: `npm run qwen:dev`
 | `QWEN_N_GPU_LAYERS` | `-1` | GPU layers (`-1` = all; `0` = CPU only) |
 | `QWEN_CONTEXT_SIZE` | `8192` | Context window |
 | `QWEN_MAX_NEW_TOKENS` | `2048` | Max tokens per generation |
+
+### 3b. RAG knowledge service (Python)
+
+Required when using **source fidelity** for canonical stories (Ramayana, Mahabharata, scripture excerpts, etc.). Indexes UTF-8 text into ChromaDB and serves semantic search to the NestJS pipeline and Q&A endpoint.
+
+```bash
+cd apps/backend/rag-service
+python -m venv .venv
+# activate venv (see above)
+pip install -r requirements.txt
+python server.py
+```
+
+Service runs at **http://127.0.0.1:8091**. First startup downloads the embedding model (`all-MiniLM-L6-v2`, ~90 MB).
+
+From the backend folder: `npm run rag:dev`
+
+#### Source fidelity workflow
+
+1. In the UI **Source knowledge (RAG)** panel, create a source (e.g. `Ramayana`).
+2. Paste text or upload a `.txt` / `.md` file of the canonical source.
+3. Select the source, enable **Source fidelity**, and set your topic (e.g. `Ramayana — Rama meets Hanuman`).
+4. Start the pipeline — each text step retrieves relevant excerpts and injects **source fidelity rules** so Qwen does not invent alternate plot lines.
+5. Use **Test Q&A** to verify retrieval before generating videos.
+
+Knowledge metadata is stored under `storage/knowledge/`; vector indexes under `storage/rag/chroma/`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RAG_PORT` | `8091` | Bind port |
+| `RAG_STORAGE_DIR` | `storage/rag/chroma` | ChromaDB persistence |
+| `RAG_EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model |
+| `RAG_DEFAULT_TOP_K` | `6` | Chunks retrieved per query |
+| `KNOWLEDGE_STORAGE_DIR` | `storage/knowledge` | Source metadata JSON (NestJS) |
 
 ### 4. FLUX image service (Python)
 

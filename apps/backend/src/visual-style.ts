@@ -25,16 +25,41 @@ export function mergeVisualStyle(
   }
 
   const animationStyle = partial.animationStyle ?? defaults.animationStyle;
+  const rawArtDirection =
+    partial.artDirection?.trim() ||
+    defaultArtDirectionForAnimation(animationStyle);
 
   return {
     orientation: partial.orientation ?? defaults.orientation,
     animationStyle,
     framing: partial.framing?.trim() || defaults.framing,
     colorPalette: partial.colorPalette?.trim() || defaults.colorPalette,
-    artDirection:
-      partial.artDirection?.trim() ||
-      defaultArtDirectionForAnimation(animationStyle),
+    artDirection: normalizeArtDirection(animationStyle, rawArtDirection),
   };
+}
+
+function normalizeArtDirection(
+  animationStyle: AnimationStyle,
+  artDirection: string,
+): string {
+  const lower = artDirection.toLowerCase();
+  const looksPhotoreal =
+    /\b(photoreal|photo-real|live.action|photograph|realistic short-form)\b/i.test(
+      lower,
+    );
+  const looks2d =
+    /\b(2d|cel-shaded|flat illustration|cartoon illustration|line art)\b/i.test(
+      lower,
+    );
+
+  if (animationStyle === "2d" && looksPhotoreal) {
+    return defaultArtDirectionForAnimation("2d");
+  }
+  if (animationStyle === "3d" && looks2d && !looksPhotoreal) {
+    return defaultArtDirectionForAnimation("3d");
+  }
+
+  return artDirection;
 }
 
 export function defaultArtDirectionForAnimation(
@@ -79,4 +104,17 @@ export function imagePromptAnimationSuffix(
   }
 
   return "2D animated illustration, cel-shaded flat colors, clean line art, expressive cartoon style.";
+}
+
+/** Compact locked prefix reused on every scene prompt for episodic consistency. */
+export function buildCompactSeriesStyleLock(
+  visualStyle?: Partial<SeriesVisualStyle>,
+): string {
+  const style = mergeVisualStyle(visualStyle);
+  const palette =
+    style.colorPalette.split(/[,;]/)[0]?.trim() || "Warm natural tones";
+  const animationLabel =
+    style.animationStyle === "3d" ? "3D cel animation" : "2D cel-shaded animation";
+
+  return `${palette}, ${animationLabel}, consistent episode look`;
 }

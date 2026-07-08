@@ -64,8 +64,10 @@ import {
   buildVideoVariantState,
   hasReusableStoryContent,
 } from '../utils/story-content';
+import { KnowledgePanel } from './KnowledgePanel';
 
 const EXAMPLE_TOPICS: string[] = [
+  'Ramayana — Rama and Hanuman',
   'Time Traveler',
   'Lost in the Metaverse',
   'The Last Lighthouse Keeper',
@@ -207,8 +209,11 @@ export function StoryGenerator() {
   const [audioScenes, setAudioScenes] = useState<SceneScript[]>([]);
   const [finalVideoPath, setFinalVideoPath] = useState<string | null>(null);
   const [characters, setCharacters] = useState<StoryCharacter[]>([]);
+  const [castReferenceImagePath, setCastReferenceImagePath] = useState<string | null>(null);
   const [reusedCharacterNames, setReusedCharacterNames] = useState<string[]>([]);
   const [seriesId, setSeriesId] = useState<string | null>(null);
+  const [knowledgeSourceId, setKnowledgeSourceId] = useState<string | null>(null);
+  const [sourceFidelityMode, setSourceFidelityMode] = useState(false);
   const [sourceProjectId, setSourceProjectId] = useState<string | null>(null);
   const [visualStyle, setVisualStyle] = useState<SeriesVisualStyle>(
     mergeVisualStyle(),
@@ -271,7 +276,10 @@ export function StoryGenerator() {
     setStory(normalized.story);
     setScriptScenes(normalized.scriptScenes);
     setCharacters(normalized.characters);
+    setCastReferenceImagePath(normalized.castReferenceImagePath ?? null);
     setSeriesId(normalized.seriesId ?? null);
+    setKnowledgeSourceId(normalized.knowledgeSourceId ?? null);
+    setSourceFidelityMode(Boolean(normalized.sourceFidelityMode));
     setSourceProjectId(normalized.sourceProjectId ?? null);
     setVisualStyle(mergeVisualStyle(normalized.visualStyle));
     if (normalized.seriesId) {
@@ -318,6 +326,14 @@ export function StoryGenerator() {
     );
   }, []);
 
+  const getSourceFidelityRequest = useCallback(
+    () => ({
+      knowledgeSourceId: sourceFidelityMode ? knowledgeSourceId : null,
+      sourceFidelityMode,
+    }),
+    [knowledgeSourceId, sourceFidelityMode],
+  );
+
   const getPersistedState = useCallback(
     (): ProjectState =>
       serializePipelineState({
@@ -330,8 +346,11 @@ export function StoryGenerator() {
         story,
         scriptScenes,
         characters,
+        castReferenceImagePath,
         seriesId,
         sourceProjectId,
+        knowledgeSourceId,
+        sourceFidelityMode,
         visualStyle,
         promptedScenes,
         imageScenes,
@@ -353,8 +372,11 @@ export function StoryGenerator() {
       story,
       scriptScenes,
       characters,
+      castReferenceImagePath,
       seriesId,
       sourceProjectId,
+      knowledgeSourceId,
+      sourceFidelityMode,
       visualStyle,
       promptedScenes,
       imageScenes,
@@ -912,6 +934,7 @@ export function StoryGenerator() {
           const response = await generateIdea({
             topic: trimmedTopic,
             storyLanguage,
+            ...getSourceFidelityRequest(),
           });
           setIdea(response.idea);
           revealStep(1);
@@ -921,7 +944,11 @@ export function StoryGenerator() {
           if (!idea) {
             throw new Error('Generate an idea first.');
           }
-          const response = await generateStory({ idea, storyLanguage });
+          const response = await generateStory({
+            idea,
+            storyLanguage,
+            ...getSourceFidelityRequest(),
+          });
           setStory(response.story);
           revealStep(2);
           break;
@@ -930,7 +957,11 @@ export function StoryGenerator() {
           if (!story) {
             throw new Error('Generate a story first.');
           }
-          const response = await generateScript({ story, storyLanguage });
+          const response = await generateScript({
+            story,
+            storyLanguage,
+            ...getSourceFidelityRequest(),
+          });
           setScriptScenes(response.script);
           revealStep(3);
           break;
@@ -944,8 +975,11 @@ export function StoryGenerator() {
             script: scriptScenes,
             storyLanguage,
             seriesId,
+            visualStyle,
+            ...getSourceFidelityRequest(),
           });
           setCharacters(response.characters);
+          setCastReferenceImagePath(response.castReferenceImagePath ?? null);
           setScriptScenes(response.script);
           setReusedCharacterNames(response.reusedCharacters);
           await refreshSeriesList();
@@ -966,6 +1000,7 @@ export function StoryGenerator() {
               videoMode: videoGenerationMode,
               storyLanguage,
               visualStyle,
+              ...getSourceFidelityRequest(),
             });
             scenesWithPrompts.push(response.scene);
             setPromptedScenes([...scenesWithPrompts]);
@@ -984,6 +1019,8 @@ export function StoryGenerator() {
             const response = await generateImage({
               scene: promptedScenes[index],
               visualStyle,
+              characters,
+              castReferenceImagePath: castReferenceImagePath ?? undefined,
             });
             scenesWithImages.push(response.scene);
             setImageScenes([...scenesWithImages]);
@@ -1347,6 +1384,7 @@ export function StoryGenerator() {
         videoMode: videoGenerationMode,
         storyLanguage,
         visualStyle,
+        ...getSourceFidelityRequest(),
       });
       setPromptedScenes((current) => {
         const next = [...current];
@@ -1365,7 +1403,7 @@ export function StoryGenerator() {
 
   async function regenerateSceneImage(index: number) {
     const scene = promptedScenes[index];
-    if (!scene?.videoPrompt) {
+    if (!scene?.imagePrompt) {
       return;
     }
 
@@ -1373,7 +1411,12 @@ export function StoryGenerator() {
     setRegeneratingSceneIndex(index);
 
     try {
-      const response = await generateImage({ scene, visualStyle });
+      const response = await generateImage({
+        scene,
+        visualStyle,
+        characters,
+        castReferenceImagePath: castReferenceImagePath ?? undefined,
+      });
       setImageScenes((current) => {
         const next = [...current];
         next[index] = response.scene;
@@ -1698,6 +1741,30 @@ export function StoryGenerator() {
             </fieldset>
 
             <fieldset
+              className="video-mode-selector source-fidelity-selector"
+              disabled={loading || effectiveReviewStep !== null || pipelineStarted}
+            >
+              <legend>Source fidelity (RAG)</legend>
+              <label className="source-fidelity-toggle">
+                <input
+                  type="checkbox"
+                  checked={sourceFidelityMode}
+                  onChange={(event) =>
+                    setSourceFidelityMode(event.target.checked)
+                  }
+                  disabled={!knowledgeSourceId}
+                />
+                <span>
+                  Use indexed source material exactly — no invented plot changes
+                </span>
+              </label>
+              <p className="muted source-fidelity-note">
+                Select a knowledge source below, index your canonical text (e.g.
+                Ramayana), then enable this before starting the pipeline.
+              </p>
+            </fieldset>
+
+            <fieldset
               className="video-mode-selector"
               disabled={loading || effectiveReviewStep !== null || pipelineStarted}
             >
@@ -1755,6 +1822,12 @@ export function StoryGenerator() {
 
             {error && !failedStep ? <p className="error-banner">{error}</p> : null}
           </section>
+
+          <KnowledgePanel
+            selectedSourceId={knowledgeSourceId}
+            onSelectSource={setKnowledgeSourceId}
+            disabled={loading || effectiveReviewStep !== null}
+          />
         </div>
       </div>
 
@@ -1907,6 +1980,13 @@ export function StoryGenerator() {
                 ) : null}
                 {characters.map((character) => (
                   <article key={character.id} className="character-profile">
+                    {character.referenceImagePath ? (
+                      <img
+                        className="character-portrait"
+                        src={character.referenceImagePath}
+                        alt={`Reference portrait for ${character.name}`}
+                      />
+                    ) : null}
                     <strong>
                       {character.name}
                       <span className="character-role">{character.role}</span>
@@ -1918,10 +1998,23 @@ export function StoryGenerator() {
                     <p className="muted character-voice">Voice: {character.voice}</p>
                   </article>
                 ))}
+                {castReferenceImagePath ? (
+                  <article className="character-profile cast-reference-sheet">
+                    <img
+                      className="character-portrait cast-sheet-image"
+                      src={castReferenceImagePath}
+                      alt="Cast reference sheet for scene generation"
+                    />
+                    <strong>Cast reference sheet</strong>
+                    <p className="muted">
+                      Full-body lineup built from approved portraits (same face and outfit, extended downward).
+                    </p>
+                  </article>
+                ) : null}
               </div>
             ) : (
               <p className="muted">
-                Defining uniform characters from story and script...
+                Defining characters and generating reference portraits...
               </p>
             )}
           </StepPanel>
@@ -2540,7 +2633,7 @@ function getLoadingMessage(
     case 'script':
       return 'Converting story into scenes...';
     case 'character':
-      return 'Defining uniform characters from story and script...';
+      return 'Defining characters and generating reference portraits with FLUX...';
     case 'prompts':
       return `Creating video prompt for scene ${sceneProgressIndex + 1} of ${totalScenes}...`;
     case 'images':

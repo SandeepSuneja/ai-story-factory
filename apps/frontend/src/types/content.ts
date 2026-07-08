@@ -31,6 +31,7 @@ export interface StoryCharacter {
   role: string;
   appearance: string;
   voice: string;
+  referenceImagePath?: string;
 }
 
 export interface SceneScript {
@@ -55,6 +56,8 @@ export interface SceneScript {
 export interface GenerateIdeaRequest {
   topic: string;
   storyLanguage?: StoryLanguage;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export interface GenerateIdeaResponse {
@@ -64,6 +67,8 @@ export interface GenerateIdeaResponse {
 export interface GenerateStoryRequest {
   idea: string;
   storyLanguage?: StoryLanguage;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export interface GenerateStoryResponse {
@@ -73,6 +78,8 @@ export interface GenerateStoryResponse {
 export interface GenerateScriptRequest {
   story: string;
   storyLanguage?: StoryLanguage;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export interface GenerateScriptResponse {
@@ -84,6 +91,9 @@ export interface GenerateCharacterProfileRequest {
   script: SceneScript[];
   storyLanguage?: StoryLanguage;
   seriesId?: string | null;
+  visualStyle?: SeriesVisualStyle;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export interface GenerateCharacterProfileResponse {
@@ -91,6 +101,7 @@ export interface GenerateCharacterProfileResponse {
   script: SceneScript[];
   reusedCharacters: string[];
   newCharacters: StoryCharacter[];
+  castReferenceImagePath?: string;
 }
 
 export interface GeneratePromptRequest {
@@ -99,6 +110,8 @@ export interface GeneratePromptRequest {
   videoMode?: VideoGenerationMode;
   storyLanguage?: StoryLanguage;
   visualStyle?: SeriesVisualStyle;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export interface UploadVideoResponse {
@@ -113,6 +126,19 @@ export interface GeneratePromptResponse {
 export interface GenerateImageRequest {
   scene: SceneScript;
   visualStyle?: SeriesVisualStyle;
+  characters?: StoryCharacter[];
+  castReferenceImagePath?: string;
+}
+
+export interface EnsureCharacterPortraitsRequest {
+  characters: StoryCharacter[];
+  visualStyle?: SeriesVisualStyle;
+  seriesId?: string | null;
+}
+
+export interface EnsureCharacterPortraitsResponse {
+  characters: StoryCharacter[];
+  castReferenceImagePath?: string;
 }
 
 export interface StartImageJobResponse {

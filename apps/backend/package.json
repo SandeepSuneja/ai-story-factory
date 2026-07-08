@@ -14,6 +14,7 @@
     "start:prod": "node dist/main",
     "flux:dev": "python flux-service/server.py",
     "qwen:dev": "python qwen-service/server.py",
+    "rag:dev": "python rag-service/server.py",
     "hunyuan:dev": "python hunyuan-service/server.py",
     "upscale:dev": "python upscale-service/server.py",
     "tts:dev": "python tts-service/server.py",
@@ -23,6 +24,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
+    "regenerate:episode": "ts-node -r tsconfig-paths/register scripts/regenerate-episode-images.ts",
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {

@@ -13,3 +13,4 @@ apps/backend/hunyuan-service/.offload/
 apps/backend/tts-service/.venv/
 apps/backend/assembly-service/.venv/
 apps/backend/upscale-service/.venv/
+apps/backend/rag-service/.venv/

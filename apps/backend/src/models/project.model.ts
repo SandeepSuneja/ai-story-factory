@@ -14,6 +14,8 @@ export interface ProjectState {
   videoGenerationMode: VideoGenerationMode;
   seriesId?: string | null;
   sourceProjectId?: string | null;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
   visualStyle?: SeriesVisualStyle;
   currentStep: PipelineStep;
   reviewStep: PipelineStep | null;
@@ -23,6 +25,8 @@ export interface ProjectState {
   characters: StoryCharacter[];
   /** @deprecated Legacy single-character field */
   characterAppearance?: string | null;
+  /** Full-body cast lineup used as scene generation reference */
+  castReferenceImagePath?: string | null;
   promptedScenes: SceneScript[];
   imageScenes: SceneScript[];
   videoScenes: SceneScript[];
@@ -70,6 +74,8 @@ export function createEmptyProjectState(): ProjectState {
     videoGenerationMode: 'local',
     seriesId: null,
     sourceProjectId: null,
+    knowledgeSourceId: null,
+    sourceFidelityMode: false,
     visualStyle: mergeVisualStyle(),
     currentStep: 'topic',
     reviewStep: null,
@@ -77,6 +83,7 @@ export function createEmptyProjectState(): ProjectState {
     story: null,
     scriptScenes: [],
     characters: [],
+    castReferenceImagePath: null,
     promptedScenes: [],
     imageScenes: [],
     videoScenes: [],

@@ -10,6 +10,11 @@ import {
   resolveCharactersFromLibrary,
 } from "../characters";
 import { contentLanguageRule } from "../language";
+import {
+  appendSourceMaterial,
+  characterRulesWithSource,
+  type SourceFidelityContext,
+} from "../source-fidelity";
 import { QwenService } from "../services/qwen.service";
 
 export interface CharacterProfileResult {
@@ -70,6 +75,7 @@ export class CharacterAgent {
     script: SceneScript[],
     language: StoryLanguage = "en",
     libraryCharacters: StoryCharacter[] = [],
+    sourceContext?: SourceFidelityContext,
   ): Promise<CharacterProfileResult> {
     const library = mergeCharacterLibraries([], libraryCharacters);
     const { reused, missingSpeakers } = resolveCharactersFromLibrary(
@@ -94,6 +100,7 @@ export class CharacterAgent {
         language,
         library,
         missingSpeakers,
+        sourceContext,
       );
       const characters = mergeCharacterLibraries(reused, generated);
       return {
@@ -110,6 +117,7 @@ export class CharacterAgent {
       language,
       library,
       speakers,
+      sourceContext,
     );
     const characters = mergeCharacterLibraries(reused, generated);
 
@@ -134,9 +142,12 @@ export class CharacterAgent {
     language: StoryLanguage,
     library: StoryCharacter[],
     missingSpeakers: string[],
+    sourceContext?: SourceFidelityContext,
   ): Promise<StoryCharacter[]> {
     const scenesSummary = this.buildScenesSummary(script);
-    const prompt = `
+    const sourceRules = sourceContext ? `\n${characterRulesWithSource()}` : "";
+    const prompt = appendSourceMaterial(
+      `
 Read the story and script, then define ONLY the new characters listed below.
 
 Existing series characters (reuse exactly — do NOT redefine):
@@ -150,7 +161,7 @@ Requirements:
 - Each new character needs a stable visual design that fits the existing series cast
 - appearance must be written in English for AI image generation
 - Match the selected animation style (2D cel-shaded or 3D CGI cartoon) in every appearance description
-- Keep each appearance 60-90 words
+- Keep each appearance 60-90 words${sourceRules}
 ${contentLanguageRule()}
 
 Return ONLY valid JSON in this exact shape:
@@ -168,7 +179,9 @@ ${story}
 
 Script scenes:
 ${scenesSummary}
-`;
+`,
+      sourceContext,
+    );
 
     return this.requestCharacters(prompt, language, library.length);
   }
@@ -179,6 +192,7 @@ ${scenesSummary}
     language: StoryLanguage,
     library: StoryCharacter[],
     speakers: string[],
+    sourceContext?: SourceFidelityContext,
   ): Promise<StoryCharacter[]> {
     const scenesSummary = this.buildScenesSummary(script);
     const speakerHint =
@@ -193,17 +207,19 @@ Existing series characters already stored by name (reuse these exact designs whe
 ${formatExistingCharactersBlock(library)}`
         : "";
 
-    const prompt = `
+    const sourceRules = sourceContext ? `\n${characterRulesWithSource()}` : "";
+    const prompt = appendSourceMaterial(
+      `
 Read the story and script scenes, then define every distinct character who speaks or appears on screen.
 
 Requirements:
-- Include 2 to 4 main characters when the story supports it (minimum 1 if truly solo)
+- Define a profile for every distinct character who speaks or appears in the script, regardless of count
 - Each character needs a stable visual design that stays identical across every video in the series
 - appearance must be written in English for AI image generation (age, gender, ethnicity, face, hair, outfit, accessories)
 - Match the selected animation style (2D cel-shaded or 3D CGI cartoon) in every appearance description
 - Assign each character a short lowercase id slug and a display name that matches script dialogue speakers
 - ${speakerHint}
-- Keep each appearance 60-90 words
+- Keep each appearance 60-90 words${sourceRules}
 ${libraryHint}
 ${contentLanguageRule()}
 
@@ -222,7 +238,9 @@ ${story}
 
 Script scenes:
 ${scenesSummary}
-`;
+`,
+      sourceContext,
+    );
 
     const generated = await this.requestCharacters(prompt, language, library.length);
 

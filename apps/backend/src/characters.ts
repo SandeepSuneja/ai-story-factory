@@ -6,6 +6,7 @@ export interface StoryCharacter {
   role: string;
   appearance: string;
   voice: string;
+  referenceImagePath?: string;
 }
 
 export interface DialogueLine {
@@ -83,7 +84,9 @@ function normalizeCharacterRecord(
     throw new Error(`Character ${index + 1} is missing name or appearance.`);
   }
 
-  return { id, name, role, appearance, voice };
+  const referenceImagePath = String(value.referenceImagePath ?? "").trim() || undefined;
+
+  return { id, name, role, appearance, voice, referenceImagePath };
 }
 
 export function normalizeCharacters(
@@ -94,9 +97,9 @@ export function normalizeCharacters(
     throw new Error("Character model output is not a JSON array.");
   }
 
-  const characters = raw
-    .slice(0, 6)
-    .map((entry, index) => normalizeCharacterRecord(entry, index, language));
+  const characters = raw.map((entry, index) =>
+    normalizeCharacterRecord(entry, index, language),
+  );
 
   const ids = new Set<string>();
   return characters.map((character, index) => {
@@ -250,8 +253,13 @@ export function collectPresentCharacterIds(
   }
 
   const visual = scene.visualDescription.toLowerCase();
+  const narration = scene.narration?.toLowerCase() ?? "";
   for (const character of characters) {
-    if (visual.includes(character.name.trim().toLowerCase())) {
+    const name = character.name.trim().toLowerCase();
+    if (!name) {
+      continue;
+    }
+    if (visual.includes(name) || narration.includes(name)) {
       ids.add(character.id);
     }
   }
@@ -290,7 +298,7 @@ export function getCharactersForScene(
   );
 
   if (presentIds.length === 0) {
-    return characters.slice(0, Math.min(2, characters.length));
+    return characters;
   }
 
   const selected = presentIds
@@ -298,6 +306,28 @@ export function getCharactersForScene(
     .filter((character): character is StoryCharacter => Boolean(character));
 
   return selected.length > 0 ? selected : characters;
+}
+
+/** Pick one portrait for IP-Adapter: prefer the speaking character, else first present. */
+export function getPrimarySceneReferenceCharacter(
+  scene: SceneScript,
+  characters: StoryCharacter[],
+): StoryCharacter | null {
+  const sceneCharacters = getCharactersForScene(scene, characters);
+  if (sceneCharacters.length === 0) {
+    return null;
+  }
+
+  const speakingIds = new Set(
+    getSceneDialogue(scene)
+      .map((line) => line.characterId)
+      .filter(Boolean),
+  );
+
+  return (
+    sceneCharacters.find((character) => speakingIds.has(character.id)) ??
+    sceneCharacters[0]
+  );
 }
 
 export function compressCharacterAppearance(appearance: string): string {
@@ -310,15 +340,483 @@ export function compressCharacterAppearance(appearance: string): string {
   return words.slice(0, 14).join(" ").replace(/[,;:\-–—]+$/, "").trim();
 }
 
+const PORTRAIT_STYLE_PREFIX =
+  /^\s*(?:2[dD]\s+cel-shaded|3[dD]\s+(?:animated|cgi))\s*[;:,]?\s*/i;
+
+const PORTRAIT_VISUAL_PATTERN =
+  /\b(long|flowing|white|silver|beard|bearded|clean-shaven|shaved|shikha|topknot|robes|robe|crown|flowers|hair|saffron|brown|golden|celestial|ethereal|radiant|armor|staff|headpiece|skin|eyes|bun|braided|adorned|garment|draped|tilak|bindi|young|youthful|elderly|aged|neatly|dark|black|blonde|blue|indigo|mustache|moustache|ornate|patterns)\b/i;
+
+function stripPortraitStyleSuffix(appearance: string): string {
+  return appearance.replace(PORTRAIT_STYLE_PREFIX, "").trim();
+}
+
+function simplifyPortraitClause(sentence: string): string {
+  return sentence
+    .replace(/^He\s+(wears|has|carries)\s+/i, "")
+    .replace(/^His\s+/i, "")
+    .replace(/^She\s+(wears|has|carries)\s+/i, "")
+    .replace(/^Her\s+/i, "")
+    .replace(/\.$/, "")
+    .trim();
+}
+
+/** Pull clothing, hair, and other visual traits from the full appearance text. */
+export function buildPortraitAppearanceSummary(
+  appearance: string,
+  maxWords = 36,
+): string {
+  const cleaned = stripPortraitStyleSuffix(appearance);
+  const sentences = cleaned.split(/(?<=[.!?])\s+/).filter(Boolean);
+
+  if (sentences.length === 0) {
+    return cleaned;
+  }
+
+  const ranked = sentences
+    .map((sentence, index) => {
+      const hasVisualDetail = PORTRAIT_VISUAL_PATTERN.test(sentence);
+      const mentionsAttire = /\b(wears|wearing|adorned|draped|robed)\b/i.test(
+        sentence,
+      );
+      let score = 0;
+      if (hasVisualDetail) {
+        score += 10;
+      }
+      if (mentionsAttire) {
+        score += 6;
+      }
+      if (/\b(hands|posture|gestures|listening|meditation)\b/i.test(sentence)) {
+        score -= 8;
+      }
+      if (index === 0 && !hasVisualDetail) {
+        score -= 4;
+      }
+      return { sentence, index, score };
+    })
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+
+  const parts: string[] = [];
+  let wordCount = 0;
+
+  for (const { sentence, score } of ranked) {
+    if (wordCount >= maxWords) {
+      break;
+    }
+    if (parts.length > 0 && score <= 0) {
+      continue;
+    }
+
+    const clause = simplifyPortraitClause(sentence);
+    if (!clause) {
+      continue;
+    }
+
+    const words = clause.split(/\s+/).filter(Boolean);
+    const remaining = maxWords - wordCount;
+    if (words.length <= remaining) {
+      parts.push(clause);
+      wordCount += words.length;
+    } else {
+      parts.push(words.slice(0, remaining).join(" "));
+      wordCount = maxWords;
+    }
+  }
+
+  if (parts.length > 0) {
+    return parts.join(", ");
+  }
+
+  return compressCharacterAppearance(cleaned);
+}
+
+const APPEARANCE_STOPWORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "with",
+  "and",
+  "his",
+  "her",
+  "their",
+  "who",
+  "that",
+  "this",
+  "figure",
+  "character",
+  "wears",
+  "wearing",
+  "has",
+  "have",
+  "shows",
+  "showing",
+  "simple",
+  "soft",
+  "calm",
+  "peaceful",
+  "expressive",
+  "clean",
+  "cohesive",
+  "2d",
+  "3d",
+  "cel-shaded",
+  "cel",
+  "shaded",
+  "cgi",
+  "cartoon",
+  "animated",
+  "illustration",
+]);
+
+const APPEARANCE_PRIORITY = new Set([
+  "elderly",
+  "young",
+  "aged",
+  "celestial",
+  "ethereal",
+  "radiant",
+  "golden",
+  "white",
+  "black",
+  "brown",
+  "blonde",
+  "blue",
+  "indigo",
+  "saffron",
+  "beard",
+  "bearded",
+  "bald",
+  "long",
+  "short",
+  "flowing",
+  "robes",
+  "armor",
+  "outfit",
+  "skin",
+  "eyes",
+  "hair",
+  "staff",
+  "crown",
+  "sage",
+  "prince",
+  "princess",
+  "warrior",
+]);
+
+export function buildDistinctiveAppearanceTag(
+  appearance: string,
+  maxWords = 8,
+): string {
+  const compressed = compressCharacterAppearance(appearance);
+  const tokens = compressed
+    .replace(/[,;]/g, " ")
+    .split(/\s+/)
+    .map((token) => token.replace(/^[^a-z0-9-]+|[^a-z0-9-]+$/gi, ""))
+    .filter(Boolean);
+
+  const ranked = tokens
+    .map((token, index) => {
+      const lower = token.toLowerCase();
+      let score = 0;
+      if (APPEARANCE_PRIORITY.has(lower)) {
+        score += 4;
+      }
+      if (/^\d/.test(token)) {
+        score -= 2;
+      }
+      if (token.length >= 5) {
+        score += 1;
+      }
+      if (APPEARANCE_STOPWORDS.has(lower)) {
+        score -= 5;
+      }
+      return { token, index, score };
+    })
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+
+  const selected: string[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of ranked) {
+    const key = entry.token.toLowerCase();
+    if (seen.has(key) || APPEARANCE_STOPWORDS.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    selected.push(entry.token);
+    if (selected.length >= maxWords) {
+      break;
+    }
+  }
+
+  if (selected.length === 0) {
+    return tokens.slice(0, maxWords).join(" ");
+  }
+
+  return selected.join(" ");
+}
+
+export function truncateToWordCount(text: string, maxWords: number): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) {
+    return text.trim();
+  }
+  return words
+    .slice(0, maxWords)
+    .join(" ")
+    .replace(/[,;:\-–—]+$/, "")
+    .trim();
+}
+
+/** Compact visual traits for scene prompts (not the first-sentence style prefix). */
+export function buildSceneAppearanceTag(
+  appearance: string,
+  maxWords = 8,
+): string {
+  const summary = buildPortraitAppearanceSummary(appearance, 32)
+    .replace(/\b2[dD]\s+cel-shaded\b/gi, "")
+    .replace(/\b3[dD]\s+(animated|cgi)\b/gi, "")
+    .trim();
+
+  if (!summary) {
+    return buildDistinctiveAppearanceTag(appearance, maxWords);
+  }
+
+  return truncateToWordCount(summary, maxWords);
+}
+
+/** Structured identity traits for scene prompts — hair, age, robes, and divine markers. */
+export function buildSceneCharacterIdentityTag(
+  appearance: string,
+  maxWords = 12,
+): string {
+  const cleaned = stripPortraitStyleSuffix(appearance);
+  const lower = cleaned.toLowerCase();
+  const traits: string[] = [];
+
+  if (/\b(elderly|aged)\b/.test(lower)) {
+    traits.push("elderly");
+  }
+  if (/\b(young|youthful|young-looking)\b/.test(lower)) {
+    traits.push("young");
+  }
+  if (/\b(long|flowing)\b[^.]{0,40}\b(hair|locks)\b/.test(lower)) {
+    traits.push("long flowing hair");
+  } else if (/\b(shaved|shaven|tonsured|shikha|topknot)\b/.test(lower)) {
+    traits.push("shaved head with topknot");
+  }
+  if (/\b(long|thick|full|white)\b[^.]{0,30}\b(beard|mustache)\b/.test(lower)) {
+    traits.push("long white beard");
+  } else if (
+    /\b(clean-shaven|no beard)\b/.test(lower) ||
+    (/\b(young|youthful)\b/.test(lower) && !/\bbeard\b/.test(lower))
+  ) {
+    traits.push("clean-shaven");
+  }
+  const robeMatch =
+    cleaned.match(/\brobes?\s+in\s+([^.;]+)/i) ??
+    cleaned.match(
+      /\b(deep blue and gold|earthy tones|saffron|orange|blue and gold)[^.;]*/i,
+    );
+  if (robeMatch) {
+    const robeText = (robeMatch[1]?.trim() ?? robeMatch[0].trim())
+      .split(/,\s*/)[0]
+      .trim();
+    traits.push(truncateToWordCount(robeText, 5));
+  }
+  if (/\b(glowing|radiant|celestial|ethereal|divine)\b/.test(lower)) {
+    traits.push("radiant divine aura");
+  }
+  if (/\b(golden|soft golden|glowing)\b[^.]{0,40}\beyes?\b/.test(lower) ||
+    /\beyes?\b[^.]{0,40}\b(golden|glow)\b/.test(lower)) {
+    traits.push("golden glowing eyes");
+  }
+  if (/\b(weathered)\b/.test(lower)) {
+    traits.push("weathered skin");
+  }
+
+  if (traits.length >= 3) {
+    return traits.slice(0, maxWords).join(", ");
+  }
+
+  return buildSceneAppearanceTag(appearance, maxWords);
+}
+
+export function buildSceneImageGuardrails(): string {
+  return "no glasses, no spectacles, no eyeglasses, no modern accessories, ancient Indian Vedic forest";
+}
+
+export function buildReferencePortraitLockHint(
+  scene: SceneScript,
+  characters: StoryCharacter[],
+): string {
+  const primary = getPrimarySceneReferenceCharacter(scene, characters);
+  if (!primary) {
+    return "";
+  }
+  return `${primary.name} must match approved reference portrait exactly`;
+}
+
+export function deterministicSeed(input: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % 2_147_483_646 || 1;
+}
+
+export function characterPortraitSeed(characterId: string): number {
+  return deterministicSeed(`portrait:${characterId}`);
+}
+
+export function sceneImageSeed(sceneNumber: number, characterIds: string[]): number {
+  return deterministicSeed(
+    `scene:${sceneNumber}:${characterIds.slice().sort().join(",")}`,
+  );
+}
+
+export function buildCharacterPortraitPrompt(
+  character: StoryCharacter,
+  animationSuffix: string,
+): string {
+  const traits = buildSceneCharacterIdentityTag(character.appearance, 12);
+  return [
+    `${character.name}, ${character.role}`,
+    traits,
+    "character portrait, front facing, plain background",
+    animationSuffix,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+export function buildCharacterFullBodyPrompt(
+  character: StoryCharacter,
+  animationSuffix: string,
+): string {
+  // Do not inject appearance text — it often contradicts the approved portrait
+  // (e.g. profile says "long beard" while the portrait is clean-shaven).
+  // The portrait reference image is the source of truth for identity.
+  return [
+    `${character.name}`,
+    "full body character reference",
+    "extend the reference portrait into a full standing figure",
+    "identical face skin tone hairstyle and outfit colors as reference portrait",
+    "do not change facial features or hair from the reference",
+    "head to toe visible",
+    "standing neutral pose",
+    "front facing",
+    "feet visible",
+    "plain soft background",
+    animationSuffix,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+export function characterFullBodySeed(characterId: string): number {
+  return deterministicSeed(`fullbody:${characterId}`);
+}
+
+export function buildCastSheetPrompt(
+  characters: StoryCharacter[],
+  animationSuffix: string,
+): string {
+  const lineup = characters
+    .map(
+      (character) =>
+        `${character.name} full body: ${buildSceneAppearanceTag(character.appearance, 12)}`,
+    )
+    .join("; ");
+
+  return [
+    "Character reference sheet",
+    "full body lineup",
+    "characters side by side",
+    "neutral standing pose",
+    "same art style and scale",
+    "plain soft background",
+    lineup,
+    animationSuffix,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+export function castSheetSeed(characterIds: string[]): number {
+  return deterministicSeed(`cast:${characterIds.slice().sort().join(",")}`);
+}
+
+export type SceneReferenceKind =
+  | "cast_sheet"
+  | "portrait"
+  | "portrait_extension"
+  | "none";
+
+export function resolveSceneReferenceImages(
+  scene: SceneScript,
+  characters: StoryCharacter[],
+  castReferenceImagePath?: string,
+): { paths: string[]; referenceKind: SceneReferenceKind } {
+  const mode = (process.env.FLUX_SCENE_REFERENCE_MODE ?? "speaker").trim();
+  const sceneCharacters = getCharactersForScene(scene, characters);
+
+  if (mode === "off") {
+    return { paths: [], referenceKind: "none" };
+  }
+
+  const castPath = castReferenceImagePath?.trim();
+  if (
+    mode === "cast_sheet" &&
+    castPath &&
+    sceneCharacters.length >= 2
+  ) {
+    return { paths: [castPath], referenceKind: "cast_sheet" };
+  }
+
+  const primary = getPrimarySceneReferenceCharacter(scene, characters);
+  if (primary?.referenceImagePath?.trim()) {
+    return {
+      paths: [primary.referenceImagePath],
+      referenceKind: "portrait",
+    };
+  }
+
+  return { paths: [], referenceKind: "none" };
+}
+
 export function formatCharactersForPrompt(
   characters: StoryCharacter[],
 ): string {
+  if (characters.length === 0) {
+    return "No characters assigned to this scene.";
+  }
+
   return characters
     .map(
       (character) =>
-        `${character.name} (${character.role}): ${compressCharacterAppearance(character.appearance)}`,
+        `${character.name} (${character.role}): ${buildSceneCharacterIdentityTag(character.appearance, 14)}`,
     )
     .join("\n");
+}
+
+export function buildCompactCharacterTags(characters: StoryCharacter[]): string {
+  return characters
+    .map(
+      (character) =>
+        `${character.name}: ${buildSceneCharacterIdentityTag(character.appearance, 12)}`,
+    )
+    .join("; ");
+}
+
+export function characterNamesMissingFromPrompt(
+  prompt: string,
+  characters: StoryCharacter[],
+): StoryCharacter[] {
+  const lowered = prompt.toLowerCase();
+  return characters.filter(
+    (character) => !lowered.includes(character.name.trim().toLowerCase()),
+  );
 }
 
 export function migrateLegacyCharacterAppearance(
@@ -383,7 +881,16 @@ export function mergeCharacterLibraries(
   }
 
   for (const character of incoming) {
-    byName.set(character.name.trim().toLowerCase(), character);
+    const key = character.name.trim().toLowerCase();
+    const previous = byName.get(key);
+    if (previous?.referenceImagePath && !character.referenceImagePath) {
+      byName.set(key, {
+        ...character,
+        referenceImagePath: previous.referenceImagePath,
+      });
+      continue;
+    }
+    byName.set(key, character);
   }
 
   return [...byName.values()];
@@ -439,6 +946,16 @@ export function formatVisualStyleForPrompt(
         ? "Style: 2D animated illustration, cel-shaded, expressive line art, not live-action photorealistic"
         : "";
 
+  const artDirection = visualStyle.artDirection?.trim() ?? "";
+  const artDirectionLooksPhotoreal =
+    /\b(photoreal|photo-real|live.action|photograph)\b/i.test(artDirection);
+  const artDirectionLine =
+    visualStyle.animationStyle === "2d" && artDirectionLooksPhotoreal
+      ? ""
+      : artDirection
+        ? `Art direction: ${artDirection}`
+        : "";
+
   const parts = [
     visualStyle.orientation
       ? `Orientation: ${visualStyle.orientation === "portrait" ? "vertical 9:16 portrait" : "horizontal 16:9 landscape"}`
@@ -446,7 +963,7 @@ export function formatVisualStyleForPrompt(
     animationHint,
     visualStyle.framing ? `Framing: ${visualStyle.framing}` : "",
     visualStyle.colorPalette ? `Palette: ${visualStyle.colorPalette}` : "",
-    visualStyle.artDirection ? `Art direction: ${visualStyle.artDirection}` : "",
+    artDirectionLine,
   ].filter(Boolean);
 
   return parts.join("\n");

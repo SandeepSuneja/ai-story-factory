@@ -5,6 +5,11 @@ import {
   contentLanguageRule,
   dialogueLanguageRule,
 } from "../language";
+import {
+  appendSourceMaterial,
+  scriptRulesWithSource,
+  type SourceFidelityContext,
+} from "../source-fidelity";
 import { QwenService } from "../services/qwen.service";
 
 const SCRIPT_MAX_TOKENS = 4096;
@@ -185,6 +190,7 @@ function buildScriptPrompt(
   story: string,
   language: StoryLanguage,
   strict = false,
+  sourceContext?: SourceFidelityContext,
 ): string {
   const contentRule = contentLanguageRule();
   const dialogueRule = dialogueLanguageRule(language);
@@ -201,8 +207,9 @@ Rules:
 - Return ONLY valid JSON.
 - Use exactly 4 to 6 scenes.
 - Each scene duration must be 3 to 6 seconds.
-- Include 2 to 4 distinct named characters across the story when possible.
-- Each scene must include a dialogue array with 2 to 4 lines where characters talk to each other.
+- Include every named character from the story; there is no upper limit on cast size
+- Each scene must name every visible character in visualDescription
+- Each scene must include dialogue for the characters who speak in that scene
 - Keep each dialogue line under 12 words.
 - Keep each visualDescription under 16 words.
 - Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
@@ -212,15 +219,19 @@ Rules:
 - Return ONLY valid JSON.
 - Use 4 to ${MAX_SCENES} scenes.
 - Each scene duration must be 3 to ${MAX_SCENE_DURATION_SECONDS} seconds.
-- Include 2 to 4 distinct named characters across the story when possible.
-- Each scene must include a dialogue array with 2 to 4 lines where characters converse naturally.
+- Include every named character from the story; there is no upper limit on cast size
+- Each scene must name every visible character in visualDescription
+- Each scene must include dialogue for the characters who speak in that scene
 - Keep each dialogue line under 16 words.
 - Keep each visualDescription under 20 words.
 - Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
 - Escape double quotes inside strings.
 - Do not truncate the JSON. Always close every string and end with ].`;
 
-  return `Convert the story into short video scenes with character dialogue.${rules}
+  const sourceRules = sourceContext ? `\n${scriptRulesWithSource()}` : "";
+
+  return appendSourceMaterial(
+    `Convert the story into short video scenes with character dialogue.${rules}${sourceRules}
 ${contentRule}
 ${dialogueRule}
 - narration and visualDescription must be in English.
@@ -242,7 +253,9 @@ Use this exact shape:
 
 Story:
 ${story}
-`;
+`,
+    sourceContext,
+  );
 }
 
 @Injectable()
@@ -252,10 +265,11 @@ export class ScriptAgent {
   async execute(
     story: string,
     language: StoryLanguage = "en",
+    sourceContext?: SourceFidelityContext,
   ): Promise<SceneScript[]> {
     const attempts = [
-      buildScriptPrompt(story, language, false),
-      `${buildScriptPrompt(story, language, true)}
+      buildScriptPrompt(story, language, false, sourceContext),
+      `${buildScriptPrompt(story, language, true, sourceContext)}
 
 Your previous answer was invalid or truncated JSON. Reply again with ONLY the JSON array.`,
     ];

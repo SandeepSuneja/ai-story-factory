@@ -58,6 +58,9 @@ export class ProjectService implements OnModuleInit {
       characters: partial.characters ?? defaults.characters,
       seriesId: partial.seriesId ?? defaults.seriesId,
       sourceProjectId: partial.sourceProjectId ?? defaults.sourceProjectId,
+      knowledgeSourceId: partial.knowledgeSourceId ?? defaults.knowledgeSourceId,
+      sourceFidelityMode:
+        partial.sourceFidelityMode ?? defaults.sourceFidelityMode,
       visualStyle: mergeVisualStyle(partial.visualStyle ?? defaults.visualStyle),
       promptedScenes: partial.promptedScenes ?? defaults.promptedScenes,
       imageScenes: partial.imageScenes ?? defaults.imageScenes,

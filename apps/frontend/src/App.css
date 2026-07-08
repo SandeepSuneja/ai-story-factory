@@ -804,6 +804,18 @@
   background: var(--accent-bg);
 }
 
+.character-portrait {
+  display: block;
+  width: 100%;
+  max-width: 12rem;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  border-radius: 0.75rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--accent-border);
+  background: rgba(15, 23, 42, 0.08);
+}
+
 .character-profile-grid {
   display: grid;
   gap: 0.85rem;
@@ -1671,4 +1683,124 @@
   .scene-card-actions {
     flex-wrap: wrap;
   }
+}
+
+.knowledge-panel {
+  margin-top: 1rem;
+}
+
+.knowledge-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.knowledge-health {
+  font-size: 0.85rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color, #334155);
+}
+
+.knowledge-health.is-healthy {
+  color: #166534;
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.knowledge-health.is-degraded {
+  color: #991b1b;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.knowledge-form {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.knowledge-form h3,
+.knowledge-source-list h3,
+.knowledge-qa-result h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.knowledge-form textarea {
+  min-height: 8rem;
+  resize: vertical;
+}
+
+.knowledge-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.knowledge-source-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.knowledge-source-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.knowledge-source-item {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.knowledge-source-item span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.file-upload-button {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-upload-button input[type='file'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.source-fidelity-toggle {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.source-fidelity-note {
+  margin: 0.5rem 0 0;
+}
+
+.knowledge-qa-result {
+  border-top: 1px solid var(--border-color, #334155);
+  padding-top: 1rem;
+}
+
+.knowledge-qa-result details {
+  margin-top: 0.75rem;
+}
+
+.knowledge-qa-result li + li {
+  margin-top: 0.75rem;
 }

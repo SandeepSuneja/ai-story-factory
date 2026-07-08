@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import type { SceneScript, SeriesVisualStyle } from "../content-state";
+import type {
+  SceneScript,
+  SeriesVisualStyle,
+  StoryCharacter,
+} from "../content-state";
 import { ImageAgent } from "../agents/image.agent";
 
 export type ImageJobStatus = "queued" | "running" | "completed" | "failed";
@@ -21,7 +25,12 @@ export class ImageJobService {
 
   constructor(private readonly imageAgent: ImageAgent) {}
 
-  start(scene: SceneScript, visualStyle?: SeriesVisualStyle): ImageJobRecord {
+  start(
+    scene: SceneScript,
+    visualStyle?: SeriesVisualStyle,
+    characters: StoryCharacter[] = [],
+    castReferenceImagePath?: string,
+  ): ImageJobRecord {
     const id = randomUUID();
     const record: ImageJobRecord = {
       id,
@@ -31,7 +40,7 @@ export class ImageJobService {
       updatedAt: Date.now(),
     };
     this.jobs.set(id, record);
-    void this.run(id, scene, visualStyle);
+    void this.run(id, scene, visualStyle, characters, castReferenceImagePath);
     return record;
   }
 
@@ -47,6 +56,8 @@ export class ImageJobService {
     id: string,
     scene: SceneScript,
     visualStyle?: SeriesVisualStyle,
+    characters: StoryCharacter[] = [],
+    castReferenceImagePath?: string,
   ): Promise<void> {
     const record = this.jobs.get(id);
     if (!record) {
@@ -57,7 +68,12 @@ export class ImageJobService {
     record.updatedAt = Date.now();
 
     try {
-      const result = await this.imageAgent.execute(scene, visualStyle);
+      const result = await this.imageAgent.execute(
+        scene,
+        visualStyle,
+        characters,
+        castReferenceImagePath,
+      );
       record.status = "completed";
       record.scene = result;
       record.updatedAt = Date.now();

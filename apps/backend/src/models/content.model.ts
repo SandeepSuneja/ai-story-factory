@@ -3,6 +3,8 @@ import type { SceneScript, StoryCharacter, StoryLanguage, SeriesVisualStyle, Vid
 export class GenerateIdeaRequestDto {
   topic: string;
   storyLanguage?: StoryLanguage;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export class GenerateIdeaResponseDto {
@@ -12,6 +14,8 @@ export class GenerateIdeaResponseDto {
 export class GenerateStoryRequestDto {
   idea: string;
   storyLanguage?: StoryLanguage;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export class GenerateStoryResponseDto {
@@ -21,6 +25,8 @@ export class GenerateStoryResponseDto {
 export class GenerateScriptRequestDto {
   story: string;
   storyLanguage?: StoryLanguage;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export class GenerateScriptResponseDto {
@@ -33,6 +39,9 @@ export class GenerateCharacterProfileRequestDto {
   storyLanguage?: StoryLanguage;
   seriesId?: string | null;
   existingCharacters?: StoryCharacter[];
+  visualStyle?: SeriesVisualStyle;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export class GenerateCharacterProfileResponseDto {
@@ -40,6 +49,7 @@ export class GenerateCharacterProfileResponseDto {
   script: SceneScript[];
   reusedCharacters: string[];
   newCharacters: StoryCharacter[];
+  castReferenceImagePath?: string;
 }
 
 export class GeneratePromptRequestDto {
@@ -48,6 +58,8 @@ export class GeneratePromptRequestDto {
   videoMode?: VideoGenerationMode;
   storyLanguage?: StoryLanguage;
   visualStyle?: SeriesVisualStyle;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export class UploadVideoResponseDto {
@@ -62,6 +74,19 @@ export class GeneratePromptResponseDto {
 export class GenerateImageRequestDto {
   scene: SceneScript;
   visualStyle?: SeriesVisualStyle;
+  characters?: StoryCharacter[];
+  castReferenceImagePath?: string;
+}
+
+export class EnsureCharacterPortraitsRequestDto {
+  characters: StoryCharacter[];
+  visualStyle?: SeriesVisualStyle;
+  seriesId?: string | null;
+}
+
+export class EnsureCharacterPortraitsResponseDto {
+  characters: StoryCharacter[];
+  castReferenceImagePath?: string;
 }
 
 export class StartImageJobResponseDto {

@@ -8,6 +8,8 @@ export interface ProjectState {
   videoGenerationMode: VideoGenerationMode;
   seriesId?: string | null;
   sourceProjectId?: string | null;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
   visualStyle?: SeriesVisualStyle;
   currentStep: PipelineStep;  reviewStep: PipelineStep | null;
   idea: string | null;
@@ -16,6 +18,7 @@ export interface ProjectState {
   characters: StoryCharacter[];
   /** @deprecated Legacy single-character field */
   characterAppearance?: string | null;
+  castReferenceImagePath?: string | null;
   promptedScenes: SceneScript[];
   imageScenes: SceneScript[];
   videoScenes: SceneScript[];
@@ -72,6 +75,9 @@ export function mergeProjectState(partial?: Partial<ProjectState>): ProjectState
     videoGenerationMode: partial.videoGenerationMode ?? defaults.videoGenerationMode,
     seriesId: partial.seriesId ?? defaults.seriesId,
     sourceProjectId: partial.sourceProjectId ?? defaults.sourceProjectId,
+    knowledgeSourceId: partial.knowledgeSourceId ?? defaults.knowledgeSourceId,
+    sourceFidelityMode:
+      partial.sourceFidelityMode ?? defaults.sourceFidelityMode,
     visualStyle: mergeVisualStyle(partial.visualStyle ?? defaults.visualStyle),
     characters: resolveProjectCharacters({
       characters: partial.characters,
@@ -100,6 +106,8 @@ export function createEmptyProjectState(): ProjectState {
     videoGenerationMode: 'local',
     seriesId: null,
     sourceProjectId: null,
+    knowledgeSourceId: null,
+    sourceFidelityMode: false,
     visualStyle: mergeVisualStyle(),
     currentStep: 'topic',
     reviewStep: null,
@@ -107,6 +115,7 @@ export function createEmptyProjectState(): ProjectState {
     story: null,
     scriptScenes: [],
     characters: [],
+    castReferenceImagePath: null,
     promptedScenes: [],
     imageScenes: [],
     videoScenes: [],
