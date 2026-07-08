@@ -87,5 +87,11 @@ async function bootstrap() {
   });
 
   await listenWithRetry(app, resolvePort());
+
+  const server = app.getHttpServer();
+  const longTimeoutMs = 48 * 60 * 60 * 1000;
+  server.setTimeout(longTimeoutMs);
+  server.headersTimeout = longTimeoutMs + 60_000;
+  server.keepAliveTimeout = 120_000;
 }
 bootstrap();

@@ -1,7 +1,10 @@
-import type { SceneScript } from "../content-state";
+import type { SceneScript, StoryCharacter, StoryLanguage, SeriesVisualStyle, VideoGenerationMode } from "../content-state";
 
 export class GenerateIdeaRequestDto {
   topic: string;
+  storyLanguage?: StoryLanguage;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export class GenerateIdeaResponseDto {
@@ -10,6 +13,9 @@ export class GenerateIdeaResponseDto {
 
 export class GenerateStoryRequestDto {
   idea: string;
+  storyLanguage?: StoryLanguage;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export class GenerateStoryResponseDto {
@@ -18,6 +24,9 @@ export class GenerateStoryResponseDto {
 
 export class GenerateScriptRequestDto {
   story: string;
+  storyLanguage?: StoryLanguage;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export class GenerateScriptResponseDto {
@@ -27,15 +36,35 @@ export class GenerateScriptResponseDto {
 export class GenerateCharacterProfileRequestDto {
   story: string;
   script: SceneScript[];
+  storyLanguage?: StoryLanguage;
+  seriesId?: string | null;
+  existingCharacters?: StoryCharacter[];
+  visualStyle?: SeriesVisualStyle;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
 }
 
 export class GenerateCharacterProfileResponseDto {
-  characterAppearance: string;
+  characters: StoryCharacter[];
+  script: SceneScript[];
+  reusedCharacters: string[];
+  newCharacters: StoryCharacter[];
+  castReferenceImagePath?: string;
 }
 
 export class GeneratePromptRequestDto {
   scene: SceneScript;
-  characterAppearance: string;
+  characters: StoryCharacter[];
+  videoMode?: VideoGenerationMode;
+  storyLanguage?: StoryLanguage;
+  visualStyle?: SeriesVisualStyle;
+  knowledgeSourceId?: string | null;
+  sourceFidelityMode?: boolean;
+}
+
+export class UploadVideoResponseDto {
+  filename: string;
+  videoPath: string;
 }
 
 export class GeneratePromptResponseDto {
@@ -44,6 +73,34 @@ export class GeneratePromptResponseDto {
 
 export class GenerateImageRequestDto {
   scene: SceneScript;
+  visualStyle?: SeriesVisualStyle;
+  characters?: StoryCharacter[];
+  castReferenceImagePath?: string;
+}
+
+export class EnsureCharacterPortraitsRequestDto {
+  characters: StoryCharacter[];
+  visualStyle?: SeriesVisualStyle;
+  seriesId?: string | null;
+}
+
+export class EnsureCharacterPortraitsResponseDto {
+  characters: StoryCharacter[];
+  castReferenceImagePath?: string;
+}
+
+export class StartImageJobResponseDto {
+  jobId: string;
+  status: string;
+  sceneNumber: number;
+}
+
+export class ImageJobStatusResponseDto {
+  id: string;
+  status: string;
+  sceneNumber: number;
+  scene?: SceneScript;
+  error?: string;
 }
 
 export class GenerateImageResponseDto {
@@ -52,14 +109,40 @@ export class GenerateImageResponseDto {
 
 export class GenerateVideoRequestDto {
   scene: SceneScript;
+  visualStyle?: SeriesVisualStyle;
+}
+
+export class StartVideoJobResponseDto {
+  jobId: string;
+  status: string;
+  sceneNumber: number;
+}
+
+export class VideoJobStatusResponseDto {
+  id: string;
+  status: string;
+  sceneNumber: number;
+  scene?: SceneScript;
+  error?: string;
 }
 
 export class GenerateVideoResponseDto {
   scene: SceneScript;
 }
 
+export class UpscaleVideoRequestDto {
+  scene: SceneScript;
+  visualStyle?: SeriesVisualStyle;
+}
+
+export class UpscaleVideoResponseDto {
+  scene: SceneScript;
+}
+
 export class GenerateAudioRequestDto {
   scene: SceneScript;
+  characters: StoryCharacter[];
+  storyLanguage?: StoryLanguage;
 }
 
 export class GenerateAudioResponseDto {

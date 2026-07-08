@@ -31,7 +31,7 @@ FINAL_DIR = Path(
         str(VIDEO_DIR),
     )
 )
-SUBTITLES_ENABLED = os.environ.get("ASSEMBLY_SUBTITLES", "true").lower() in {
+SUBTITLES_ENABLED = os.environ.get("ASSEMBLY_SUBTITLES", "false").lower() in {
     "1",
     "true",
     "yes",
@@ -46,11 +46,18 @@ logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="Assembly Service")
 
 
+class SubtitleCueInput(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(ge=0.1)
+    text: str = Field(min_length=1)
+
+
 class SceneInput(BaseModel):
     scene_number: int = Field(ge=1)
     video_filename: str = Field(min_length=1)
     audio_filename: str = Field(min_length=1)
-    narration: str = Field(min_length=1)
+    narration: str | None = None
+    subtitle_cues: list[SubtitleCueInput] | None = None
     duration_seconds: float | None = Field(default=None, ge=0.1)
 
 
@@ -138,6 +145,28 @@ def write_scene_srt(narration: str, duration_seconds: float, output_path: Path) 
     output_path.write_text(content, encoding="utf-8")
 
 
+def write_scene_srt_cues(
+    cues: list[SubtitleCueInput],
+    duration_seconds: float,
+    output_path: Path,
+) -> None:
+    blocks: list[str] = []
+    for index, cue in enumerate(cues, start=1):
+        start = max(cue.start, 0.0)
+        end = min(max(cue.end, start + 0.1), duration_seconds)
+        body = wrap_subtitle_text(cue.text.strip())
+        blocks.append(
+            f"{index}\n"
+            f"{format_srt_timestamp(start)} --> {format_srt_timestamp(end)}\n"
+            f"{body}\n"
+        )
+
+    if not blocks:
+        return
+
+    output_path.write_text("".join(blocks), encoding="utf-8")
+
+
 def escape_subtitles_filter_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "/").replace(":", "\\:")
 
@@ -155,6 +184,7 @@ def mux_scene(
     audio_path: Path,
     output_path: Path,
     narration: str | None = None,
+    subtitle_cues: list[SubtitleCueInput] | None = None,
     work_dir: Path | None = None,
 ) -> None:
     video_duration = probe_duration(video_path)
@@ -166,9 +196,16 @@ def mux_scene(
     video_map = "0:v:0"
     video_codec = ["-c:v", "copy"]
 
-    if SUBTITLES_ENABLED and narration and narration.strip() and work_dir is not None:
-        subtitle_path = work_dir / f"scene-{output_path.stem}.srt"
-        write_scene_srt(narration, video_duration, subtitle_path)
+    subtitle_path: Path | None = None
+    if SUBTITLES_ENABLED and work_dir is not None:
+        if subtitle_cues:
+            subtitle_path = work_dir / f"scene-{output_path.stem}.srt"
+            write_scene_srt_cues(subtitle_cues, video_duration, subtitle_path)
+        elif narration and narration.strip():
+            subtitle_path = work_dir / f"scene-{output_path.stem}.srt"
+            write_scene_srt(narration, video_duration, subtitle_path)
+
+    if subtitle_path is not None and subtitle_path.exists():
         subs_arg = escape_subtitles_filter_path(subtitle_path)
         style = subtitle_force_style()
         filter_parts.insert(
@@ -290,6 +327,7 @@ def assemble_video(request: AssembleRequest) -> AssembleResponse:
                 audio_path,
                 muxed_path,
                 narration=scene.narration,
+                subtitle_cues=scene.subtitle_cues,
                 work_dir=temp_dir,
             )
             muxed_segments.append(muxed_path)

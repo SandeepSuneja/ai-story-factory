@@ -1,5 +1,15 @@
 import { Injectable } from "@nestjs/common";
-import type { SceneScript } from "../content-state";
+import type { DialogueLine, SceneScript, StoryLanguage } from "../content-state";
+import { inferDialogueFromNarration } from "../characters";
+import {
+  contentLanguageRule,
+  dialogueLanguageRule,
+} from "../language";
+import {
+  appendSourceMaterial,
+  scriptRulesWithSource,
+  type SourceFidelityContext,
+} from "../source-fidelity";
 import { QwenService } from "../services/qwen.service";
 
 const SCRIPT_MAX_TOKENS = 4096;
@@ -91,6 +101,40 @@ function extractCompleteJsonObjects(text: string): unknown[] {
   return objects;
 }
 
+function normalizeDialogue(raw: unknown): DialogueLine[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  return raw
+    .map((entry): DialogueLine | null => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const value = entry as Record<string, unknown>;
+      const text = String(value.text ?? "").trim();
+      const speaker = String(
+        value.speaker ?? value.character ?? value.characterId ?? "",
+      ).trim();
+      if (!text || !speaker) {
+        return null;
+      }
+      return {
+        characterId: speaker.toLowerCase().replace(/\s+/g, "-"),
+        speaker,
+        text,
+      };
+    })
+    .filter((line): line is DialogueLine => line !== null);
+}
+
+function buildNarrationFromDialogue(dialogue: DialogueLine[]): string {
+  if (dialogue.length === 0) {
+    return "";
+  }
+  return dialogue.map((line) => `${line.speaker}: ${line.text}`).join("\n");
+}
+
 function normalizeScenes(raw: unknown): SceneScript[] {
   if (!Array.isArray(raw)) {
     throw new Error("Script model output is not a JSON array.");
@@ -106,14 +150,23 @@ function normalizeScenes(raw: unknown): SceneScript[] {
     }
 
     const value = scene as Record<string, unknown>;
+    const narration = String(value.narration ?? "").trim();
+    let dialogue = normalizeDialogue(value.dialogue);
+    if (dialogue.length === 0 && narration) {
+      dialogue = inferDialogueFromNarration(narration);
+    }
+    const resolvedNarration =
+      narration || buildNarrationFromDialogue(dialogue);
+
     return {
       sceneNumber: Number(value.sceneNumber ?? index + 1),
-      narration: String(value.narration ?? "").trim(),
+      narration: resolvedNarration,
       visualDescription: String(value.visualDescription ?? "").trim(),
       duration: Math.min(
         MAX_SCENE_DURATION_SECONDS,
         Math.max(1, Number(value.duration ?? 3)),
       ),
+      dialogue,
     };
   });
 }
@@ -133,51 +186,90 @@ function parseJsonFromModel(text: string): SceneScript[] {
   }
 }
 
-function buildScriptPrompt(story: string, strict = false): string {
+function buildScriptPrompt(
+  story: string,
+  language: StoryLanguage,
+  strict = false,
+  sourceContext?: SourceFidelityContext,
+): string {
+  const contentRule = contentLanguageRule();
+  const dialogueRule = dialogueLanguageRule(language);
+  const dialogueField =
+    language === "hi"
+      ? "spoken line in Hindi (Devanagari)"
+      : "spoken line in English";
+  const visualField =
+    "what appears on screen in English, naming every visible character";
+
   const rules = strict
     ? `
 Rules:
 - Return ONLY valid JSON.
 - Use exactly 4 to 6 scenes.
 - Each scene duration must be 3 to 6 seconds.
-- Keep each narration under 12 words.
-- Keep each visualDescription under 12 words.
+- Include every named character from the story; there is no upper limit on cast size
+- Each scene must name every visible character in visualDescription
+- Each scene must include dialogue for the characters who speak in that scene
+- Keep each dialogue line under 12 words.
+- Keep each visualDescription under 16 words.
+- Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
 - Do not truncate the JSON. Always close every string and end with ].`
     : `
 Rules:
 - Return ONLY valid JSON.
 - Use 4 to ${MAX_SCENES} scenes.
 - Each scene duration must be 3 to ${MAX_SCENE_DURATION_SECONDS} seconds.
-- Keep each narration under 18 words.
-- Keep each visualDescription under 18 words.
+- Include every named character from the story; there is no upper limit on cast size
+- Each scene must name every visible character in visualDescription
+- Each scene must include dialogue for the characters who speak in that scene
+- Keep each dialogue line under 16 words.
+- Keep each visualDescription under 20 words.
+- Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
 - Escape double quotes inside strings.
 - Do not truncate the JSON. Always close every string and end with ].`;
 
-  return `Convert the story into short video scenes.${rules}
+  const sourceRules = sourceContext ? `\n${scriptRulesWithSource()}` : "";
+
+  return appendSourceMaterial(
+    `Convert the story into short video scenes with character dialogue.${rules}${sourceRules}
+${contentRule}
+${dialogueRule}
+- narration and visualDescription must be in English.
+- dialogue.text must follow the dialogue language rule above.
+- Use the same speaker names consistently across all scenes.
 
 Use this exact shape:
 [
   {
     "sceneNumber": 1,
     "duration": 6,
-    "narration": "spoken line for the scene",
-    "visualDescription": "what appears on screen"
+    "visualDescription": "${visualField}",
+    "dialogue": [
+      { "speaker": "Maya", "text": "${dialogueField}" },
+      { "speaker": "Raj", "text": "${dialogueField}" }
+    ]
   }
 ]
 
 Story:
 ${story}
-`;
+`,
+    sourceContext,
+  );
 }
 
 @Injectable()
 export class ScriptAgent {
   constructor(private readonly ai: QwenService) {}
 
-  async execute(story: string): Promise<SceneScript[]> {
+  async execute(
+    story: string,
+    language: StoryLanguage = "en",
+    sourceContext?: SourceFidelityContext,
+  ): Promise<SceneScript[]> {
     const attempts = [
-      buildScriptPrompt(story, false),
-      `${buildScriptPrompt(story, true)}
+      buildScriptPrompt(story, language, false, sourceContext),
+      `${buildScriptPrompt(story, language, true, sourceContext)}
 
 Your previous answer was invalid or truncated JSON. Reply again with ONLY the JSON array.`,
     ];

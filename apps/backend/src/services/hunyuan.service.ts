@@ -1,10 +1,18 @@
 import { Injectable } from "@nestjs/common";
 import { join } from "path";
+import type { SeriesOrientation } from "../content-state";
+import { getGenerationDimensions } from "../visual-style";
 import { inferenceFetch, videoInferenceFetch } from "./inference-fetch";
 
 interface HunyuanGenerateResponse {
   filename: string;
   videoPath: string;
+}
+
+interface HunyuanHealthResponse {
+  status: string;
+  model?: string;
+  detail?: string;
 }
 
 @Injectable()
@@ -36,24 +44,89 @@ export class HunyuanService {
     return filename;
   }
 
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   private async assertServiceReachable(): Promise<void> {
-    let response: Awaited<ReturnType<typeof inferenceFetch>>;
-    try {
-      response = await inferenceFetch(`${this.serviceUrl}/health`);
-    } catch (error) {
+    const pollMs = 5_000;
+    const startupDeadline = Date.now() + 2 * 60 * 1000;
+    const loadDeadline = Date.now() + 30 * 60 * 1000;
+    let sawServer = false;
+    let lastError: unknown;
+
+    while (Date.now() < loadDeadline) {
+      try {
+        const response = await inferenceFetch(`${this.serviceUrl}/health`);
+
+        if (response.status === 503) {
+          const body = (await response.json().catch(() => ({}))) as {
+            detail?: string;
+          };
+          throw new Error(
+            `Wan2.1 model failed to load: ${body.detail ?? response.statusText}`,
+          );
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            `Wan2.1 health check failed with status ${response.status}`,
+          );
+        }
+
+        sawServer = true;
+        const body = (await response.json()) as HunyuanHealthResponse;
+        if (body.status === "ok") {
+          return;
+        }
+
+        if (body.status === "loading" || body.status === "starting") {
+          await this.sleep(pollMs);
+          continue;
+        }
+
+        throw new Error(
+          `Wan2.1 service reported unexpected status: ${body.status}`,
+        );
+      } catch (error) {
+        lastError = error;
+        if (error instanceof Error && error.message.startsWith("Wan2.1")) {
+          throw error;
+        }
+
+        const code = this.extractErrorCode(error);
+        if (code === "ECONNREFUSED") {
+          const deadline = sawServer ? loadDeadline : startupDeadline;
+          if (Date.now() >= deadline) {
+            break;
+          }
+          await this.sleep(pollMs);
+          continue;
+        }
+
+        throw new Error(
+          this.describeFetchFailure(
+            "Wan2.1 service is not reachable",
+            error,
+          ),
+        );
+      }
+    }
+
+    if (!sawServer) {
       throw new Error(
         this.describeFetchFailure(
-          "CogVideoX service is not reachable",
-          error,
+          "Wan2.1 service is not reachable",
+          lastError,
         ),
       );
     }
 
-    if (!response.ok) {
-      throw new Error(
-        `CogVideoX health check failed with status ${response.status}`,
-      );
-    }
+    throw new Error(
+      "Wan2.1 service is still loading the model. " +
+        "First startup can take 15+ minutes on 12 GB VRAM — " +
+        "keep the video service terminal open and retry shortly.",
+    );
   }
 
   private extractErrorCode(error: unknown): string | undefined {
@@ -85,14 +158,14 @@ export class HunyuanService {
 
     if (code === "ECONNREFUSED") {
       return (
-        `${context}. CogVideoX service is not running — start it with: ` +
+        `${context}. Wan2.1 service is not running — start it with: ` +
         "cd apps/backend/hunyuan-service && python server.py"
       );
     }
 
     if (code === "ECONNRESET" || code === "UND_ERR_SOCKET") {
       return (
-        `${context}. The CogVideoX process closed the connection mid-request — ` +
+        `${context}. The Wan2.1 process closed the connection mid-request — ` +
         "it usually crashed from GPU out-of-memory. " +
         "Stop FLUX and Qwen GPU usage, restart the video service, then retry with fewer frames/steps."
       );
@@ -103,9 +176,9 @@ export class HunyuanService {
       code === "UND_ERR_BODY_TIMEOUT"
     ) {
       return (
-        `${context}. NestJS timed out waiting for CogVideoX. ` +
+        `${context}. NestJS timed out waiting for Wan2.1. ` +
         "Restart NestJS after pulling the latest code, " +
-        "or set HUNYUAN_BODY_TIMEOUT_MS=86400000 (24 h) in apps/backend/.env."
+        "or set HUNYUAN_BODY_TIMEOUT_MS=172800000 (48 h) in apps/backend/.env."
       );
     }
 
@@ -118,9 +191,11 @@ export class HunyuanService {
     sceneNumber: number,
     imagePath: string,
     durationSeconds?: number,
+    orientation: SeriesOrientation = "landscape",
   ): Promise<string> {
     await this.assertServiceReachable();
 
+    const { width, height } = getGenerationDimensions(orientation);
     let response: Awaited<ReturnType<typeof videoInferenceFetch>>;
     try {
       response = await videoInferenceFetch(`${this.serviceUrl}/generate`, {
@@ -133,18 +208,21 @@ export class HunyuanService {
           scene_number: sceneNumber,
           image_filename: this.resolveImageFilename(imagePath),
           duration_seconds: durationSeconds,
+          orientation,
+          width,
+          height,
         }),
       });
     } catch (error) {
       throw new Error(
-        this.describeFetchFailure("CogVideoX request failed", error),
+        this.describeFetchFailure("Wan2.1 request failed", error),
       );
     }
 
     if (!response.ok) {
       const message = await response.text();
       throw new Error(
-        message || `CogVideoX service failed with status ${response.status}`,
+        message || `Wan2.1 service failed with status ${response.status}`,
       );
     }
 

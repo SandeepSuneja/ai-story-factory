@@ -81,9 +81,16 @@ export class AssemblyService {
       project_name: projectName,
       scenes: scenes.map((scene) => ({
         scene_number: scene.sceneNumber,
-        video_filename: this.resolveMediaFilename(scene.videoPath ?? ""),
+        video_filename: this.resolveMediaFilename(
+          scene.upscaledVideoPath ?? scene.videoPath ?? "",
+        ),
         audio_filename: this.resolveMediaFilename(scene.audioPath ?? ""),
         narration: scene.narration,
+        subtitle_cues: scene.subtitleCues?.map((cue) => ({
+          start: cue.start,
+          end: cue.end,
+          text: cue.text,
+        })),
         duration_seconds: scene.duration,
       })),
     };

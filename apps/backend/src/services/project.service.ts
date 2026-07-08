@@ -15,11 +15,16 @@ import {
   UpdateProjectRequestDto,
 } from '../models/project.model';
 
+import { mergeVisualStyle } from '../models/series.model';
+import { SeriesService } from './series.service';
+
 @Injectable()
 export class ProjectService implements OnModuleInit {
   private readonly storageDir =
     process.env.PROJECT_STORAGE_DIR ??
     join(process.cwd(), 'storage', 'projects');
+
+  constructor(private readonly seriesService: SeriesService) {}
 
   async onModuleInit() {
     await mkdir(this.storageDir, { recursive: true });
@@ -34,6 +39,7 @@ export class ProjectService implements OnModuleInit {
       id: project.id,
       name: project.name,
       topic: project.state.topic,
+      seriesId: project.seriesId ?? project.state.seriesId ?? null,
       currentStep: project.state.currentStep,
       updatedAt: project.updatedAt,
     };
@@ -49,6 +55,13 @@ export class ProjectService implements OnModuleInit {
       ...defaults,
       ...partial,
       scriptScenes: partial.scriptScenes ?? defaults.scriptScenes,
+      characters: partial.characters ?? defaults.characters,
+      seriesId: partial.seriesId ?? defaults.seriesId,
+      sourceProjectId: partial.sourceProjectId ?? defaults.sourceProjectId,
+      knowledgeSourceId: partial.knowledgeSourceId ?? defaults.knowledgeSourceId,
+      sourceFidelityMode:
+        partial.sourceFidelityMode ?? defaults.sourceFidelityMode,
+      visualStyle: mergeVisualStyle(partial.visualStyle ?? defaults.visualStyle),
       promptedScenes: partial.promptedScenes ?? defaults.promptedScenes,
       imageScenes: partial.imageScenes ?? defaults.imageScenes,
       videoScenes: partial.videoScenes ?? defaults.videoScenes,
@@ -105,7 +118,18 @@ export class ProjectService implements OnModuleInit {
 
   async createProject(body: CreateProjectRequestDto = {}): Promise<ProjectRecord> {
     const now = new Date().toISOString();
-    const state = this.mergeState(body.state);
+    const seriesId = body.seriesId?.trim() || body.state?.seriesId?.trim() || null;
+    let state = this.mergeState(body.state);
+
+    if (seriesId) {
+      const series = await this.seriesService.getSeries(seriesId);
+      state = {
+        ...state,
+        seriesId,
+        visualStyle: mergeVisualStyle(series.visualStyle),
+      };
+    }
+
     const name =
       body.name?.trim() ||
       state.topic.trim() ||
@@ -114,6 +138,7 @@ export class ProjectService implements OnModuleInit {
     const project: ProjectRecord = {
       id: randomUUID(),
       name,
+      seriesId,
       createdAt: now,
       updatedAt: now,
       state,
@@ -142,8 +167,12 @@ export class ProjectService implements OnModuleInit {
     const project: ProjectRecord = {
       ...existing,
       name: name === 'Untitled project' && topic ? topic : name,
+      seriesId: state.seriesId ?? existing.seriesId ?? null,
       updatedAt: new Date().toISOString(),
-      state,
+      state: {
+        ...state,
+        seriesId: state.seriesId ?? existing.seriesId ?? null,
+      },
     };
 
     await writeFile(
