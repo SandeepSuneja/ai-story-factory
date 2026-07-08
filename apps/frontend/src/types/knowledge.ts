@@ -40,13 +40,6 @@ export interface AddKnowledgeDocumentsRequest {
   }>;
 }
 
-export interface SearchKnowledgeResponse {
-  sourceId: string;
-  sourceName: string;
-  query: string;
-  hits: RetrievedChunk[];
-}
-
 export interface AskKnowledgeResponse {
   answer: string;
   sourceId: string;

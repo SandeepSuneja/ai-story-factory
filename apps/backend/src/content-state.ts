@@ -16,13 +16,6 @@ export type PipelineStep =
   | 'assembly'
   | 'complete';
 
-export interface ContentState {
-  topic: string;
-  idea?: string;
-  story?: string;
-  script?: SceneScript[];
-}
-
 export interface DialogueLine {
   characterId: string;
   speaker?: string;

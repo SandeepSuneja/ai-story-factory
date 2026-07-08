@@ -20,10 +20,9 @@ AI Story Factory turns a short topic into a finished short video: idea, narrativ
 ```
 ai-story-factory/
 └── apps/
-    ├── backend/          NestJS API, LangGraph agents, service integrations
+    ├── backend/          NestJS API, agents, service integrations
     │   ├── src/
     │   │   ├── agents/   Idea, story, script, character, prompt, image, video, upscale, audio, assembly
-    │   │   ├── graphs/   LangGraph content pipeline (idea → story → script)
     │   │   └── services/ Qwen, FLUX, Wan, upscale, TTS, assembly, image/video job queues
     │   ├── qwen-service/     Python FastAPI — Qwen3-14B text generation (:8090)
     │   ├── rag-service/      Python FastAPI — ChromaDB RAG + embeddings (:8091)
@@ -76,8 +75,6 @@ The UI runs these steps in order. **Each step pauses for review** — approve th
 | 7. Scene videos (1080p) | `VideoAgent` + `UpscaleAgent` (local) or upload + upscale (professional) | 1080p MP4 per scene |
 | 8. Audio | `AudioAgent` | Narration WAV per scene via TTS (Edge TTS for Hindi) |
 | 9. Assembly | `AssemblyAgent` | Final story video with synced dialogue audio |
-
-A LangGraph workflow (`content.graph.ts`) also chains **idea → story → script** for programmatic use.
 
 ### Story language (English / Hindi)
 
@@ -491,7 +488,6 @@ Poll image/video jobs from the UI until `status` is `completed` or `failed`.
 |-------|----------------|
 | Frontend | React 19, TypeScript, Vite |
 | Backend | NestJS 11, TypeScript |
-| AI orchestration | LangGraph, LangChain |
 | Text model | Qwen3-14B Q4_K_M GGUF (llama.cpp) |
 | Image model | FLUX.1-dev (Diffusers) |
 | Video model | Wan2.1-I2V-14B-480P (Diffusers) |

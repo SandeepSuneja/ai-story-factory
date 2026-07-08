@@ -64,8 +64,3 @@ export class AskKnowledgeResponseDto {
   question: string;
   hits: RetrievedChunkDto[];
 }
-
-export class SourceFidelityFieldsDto {
-  knowledgeSourceId?: string | null;
-  sourceFidelityMode?: boolean;
-}

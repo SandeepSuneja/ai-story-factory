@@ -5,7 +5,6 @@ import type {
   KnowledgeHealthResponse,
   KnowledgeSourceRecord,
   KnowledgeSourceSummary,
-  SearchKnowledgeResponse,
 } from '../types/knowledge';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '/api';
@@ -87,17 +86,6 @@ export async function uploadKnowledgeDocument(
   }
 
   return response.json() as Promise<KnowledgeSourceRecord>;
-}
-
-export function searchKnowledgeSource(
-  id: string,
-  query: string,
-  topK = 6,
-): Promise<SearchKnowledgeResponse> {
-  return requestJson(`/knowledge/${id}/search`, {
-    method: 'POST',
-    body: JSON.stringify({ query, topK }),
-  });
 }
 
 export function askKnowledgeSource(

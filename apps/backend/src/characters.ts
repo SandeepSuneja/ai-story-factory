@@ -1,25 +1,11 @@
-import type { SceneScript, StoryLanguage } from "./content-state";
+import type {
+  DialogueLine,
+  SceneScript,
+  StoryCharacter,
+  StoryLanguage,
+} from "./content-state";
 
-export interface StoryCharacter {
-  id: string;
-  name: string;
-  role: string;
-  appearance: string;
-  voice: string;
-  referenceImagePath?: string;
-}
-
-export interface DialogueLine {
-  characterId: string;
-  speaker?: string;
-  text: string;
-}
-
-export interface SubtitleCue {
-  start: number;
-  end: number;
-  text: string;
-}
+export type { DialogueLine, StoryCharacter };
 
 const EN_EDGE_VOICES = [
   "en-US-AriaNeural",
@@ -819,25 +805,6 @@ export function characterNamesMissingFromPrompt(
   );
 }
 
-export function migrateLegacyCharacterAppearance(
-  characterAppearance: string | null | undefined,
-  language: StoryLanguage,
-): StoryCharacter[] {
-  const appearance = characterAppearance?.trim();
-  if (!appearance) {
-    return [];
-  }
-
-  return [
-    {
-      id: "main",
-      name: "Main character",
-      role: "protagonist",
-      appearance,
-      voice: defaultVoiceForCharacter(language, 0),
-    },
-  ];
-}
 
 export function collectSpeakersFromScript(script: SceneScript[]): string[] {
   const speakers = new Set<string>();
@@ -1046,17 +1013,4 @@ export function buildSpeakingMotionHint(scene: SceneScript): string {
   }
 
   return `${speakers.join(" and ")} converse with subtle lip movement, natural expressions, and gentle head turns while speaking.`;
-}
-
-export function buildTalkingImageHint(scene: SceneScript): string {
-  const speakers = getSpeakingCharacters(scene);
-  if (speakers.length === 0) {
-    return "";
-  }
-
-  if (speakers.length === 1) {
-    return `${speakers[0]} mid-conversation, mouth slightly open, engaged expression.`;
-  }
-
-  return `${speakers.join(" and ")} in conversation, natural speaking expressions.`;
 }
