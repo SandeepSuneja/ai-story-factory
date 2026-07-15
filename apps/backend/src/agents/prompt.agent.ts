@@ -8,29 +8,23 @@ import type {
 } from "../content-state";
 import {
   buildSpeakingMotionHint,
-  buildCompactCharacterTags,
-  buildSceneAppearanceTag,
-  buildSceneCharacterIdentityTag,
-  buildSceneImageGuardrails,
-  buildReferencePortraitLockHint,
-  characterNamesMissingFromPrompt,
   formatCharactersForPrompt,
   formatVisualStyleForPrompt,
   getCharactersForScene,
   getSpeakingCharacters,
 } from "../characters";
+import { classifySceneImageTemplate } from "../scene-image";
 import {
-  buildContextualTalkingImageHint,
-  buildSceneCompositionHint,
-  classifySceneImageTemplate,
-} from "../scene-image";
+  buildTierASceneImagePrompt,
+  ensureAllSceneCharactersInTierAPrompt,
+  TIER_A_IMAGE_PROMPT_MAX_WORDS,
+} from "../scene-image-prompt";
 import {
   imagePromptLanguageRule,
   videoPromptLanguageRule,
 } from "../language";
 import {
   imagePromptAnimationSuffix,
-  buildCompactSeriesStyleLock,
   mergeVisualStyle,
 } from "../visual-style";
 import {
@@ -48,7 +42,7 @@ export interface ScenePrompts {
 const PROMPT_MAX_TOKENS = 1024;
 const MAX_VIDEO_WORDS = 45;
 const MAX_PRO_VIDEO_WORDS = 100;
-const FLUX_CLIP_TARGET_WORDS = 68;
+const FLUX_CLIP_TARGET_WORDS = TIER_A_IMAGE_PROMPT_MAX_WORDS;
 
 function imagePromptWordBudget(_characterCount: number): number {
   return FLUX_CLIP_TARGET_WORDS;
@@ -59,45 +53,7 @@ function buildFluxOptimizedImagePrompt(
   sceneCharacters: StoryCharacter[],
   visualStyle?: SeriesVisualStyle,
 ): string {
-  const resolvedStyle = mergeVisualStyle(visualStyle);
-  const names = sceneCharacters.map((character) => character.name);
-  const styleLock = buildCompactSeriesStyleLock(resolvedStyle);
-  const sceneLead = scene.visualDescription.trim();
-  const composition = buildSceneCompositionHint(
-    scene,
-    sceneCharacters,
-    resolvedStyle,
-  );
-  const roster =
-    names.length > 1
-      ? `All ${names.length} characters visible: ${names.join(", ")}`
-      : names.length === 1
-        ? `${names[0]} visible`
-        : "";
-  const portraitGroup =
-    names.length >= 3 && resolvedStyle.orientation === "portrait"
-      ? "Wide group shot, full cast in frame"
-      : "";
-  const tags = sceneCharacters
-    .map(
-      (character) =>
-        `${character.name}: ${buildSceneCharacterIdentityTag(character.appearance, 10)}`,
-    )
-    .join("; ");
-  const style = imagePromptAnimationSuffix(resolvedStyle.animationStyle);
-
-  return [
-    styleLock,
-    sceneLead,
-    composition,
-    portraitGroup,
-    roster,
-    tags,
-    style,
-  ]
-    .filter(Boolean)
-    .join(". ")
-    .replace(/\.\s*\./g, ".");
+  return buildTierASceneImagePrompt(scene, sceneCharacters, visualStyle);
 }
 
 function stripModelWrappers(text: string): string {
@@ -131,80 +87,6 @@ function clampWords(text: string, maxWords: number): string {
     return text.trim();
   }
   return words.slice(0, maxWords).join(" ").replace(/[,;:\-–—]+$/, "").trim();
-}
-
-function wordCount(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
-/** Trim boilerplate first so scene action and character appearance tags survive. */
-function clampImagePromptPreservingCharacters(
-  scene: SceneScript,
-  sceneCharacters: StoryCharacter[],
-  visualStyle: SeriesVisualStyle | undefined,
-  maxWords: number,
-): string {
-  const resolvedStyle = mergeVisualStyle(visualStyle);
-  const styleLock = buildCompactSeriesStyleLock(resolvedStyle);
-  const sceneLead = scene.visualDescription.trim();
-  const composition = buildSceneCompositionHint(
-    scene,
-    sceneCharacters,
-    resolvedStyle,
-  );
-  const roster =
-    sceneCharacters.length > 1
-      ? `All ${sceneCharacters.length} characters visible: ${sceneCharacters
-          .map((character) => character.name)
-          .join(", ")}`
-      : sceneCharacters.length === 1
-        ? `${sceneCharacters[0].name} visible`
-        : "";
-  const tags = sceneCharacters
-    .map(
-      (character) =>
-        `${character.name}: ${buildSceneCharacterIdentityTag(character.appearance, 12)}`,
-    )
-    .join("; ");
-  const referenceLock = buildReferencePortraitLockHint(scene, sceneCharacters);
-  const guardrails = buildSceneImageGuardrails();
-  const talkingHint = buildContextualTalkingImageHint(scene);
-
-  const mandatory = [sceneLead, referenceLock, tags, roster, guardrails]
-    .filter(Boolean)
-    .map((part) => part.replace(/\.\s*$/, "").trim())
-    .join(". ");
-  if (wordCount(mandatory) > maxWords) {
-    const compactTags = sceneCharacters
-      .map(
-        (character) =>
-          `${character.name}: ${buildSceneCharacterIdentityTag(character.appearance, 8)}`,
-      )
-      .join("; ");
-    const compactMandatory = [sceneLead, compactTags, roster, guardrails]
-      .filter(Boolean)
-      .map((part) => part.replace(/\.\s*$/, "").trim())
-      .join(". ");
-    if (wordCount(compactMandatory) <= maxWords) {
-      return compactMandatory;
-    }
-    return clampWords(compactMandatory, maxWords);
-  }
-
-  let prompt = mandatory;
-  for (const extra of [composition, talkingHint, styleLock]) {
-    if (!extra) {
-      continue;
-    }
-    const candidate = `${prompt.replace(/\.\s*$/, "").trim()}. ${extra
-      .replace(/^\.\s*/, "")
-      .trim()}`.replace(/\s+/g, " ").trim();
-    if (wordCount(candidate) <= maxWords) {
-      prompt = candidate;
-    }
-  }
-
-  return prompt;
 }
 
 function sanitizeVideoPrompt(text: string, duration: number): string {
@@ -248,18 +130,6 @@ function enhanceVideoPromptForTalking(
   return clampWords(combined, maxWords);
 }
 
-function enhanceImagePromptForTalking(
-  prompt: string,
-  scene: SceneScript,
-): string {
-  const talkingHint = buildContextualTalkingImageHint(scene);
-  if (!talkingHint) {
-    return prompt;
-  }
-
-  return `${prompt} ${talkingHint}`.replace(/\s+/g, " ").trim();
-}
-
 function sanitizeProfessionalVideoPrompt(text: string, duration: number): string {
   let prompt = text
     .replace(/\*\*[^*]+:\*\*/g, "")
@@ -274,37 +144,19 @@ function sanitizeProfessionalVideoPrompt(text: string, duration: number): string
   return prompt;
 }
 
-function stripImageBoilerplate(text: string): string {
-  return text
-    .replace(/\b(horizontal\s*)?16\s*:\s*9\b[^.]*\.?/gi, "")
-    .replace(/\b832\s*[x×]\s*480\b/gi, "")
-    .replace(/\b(keyframe|frozen moment|single frame|photographable frame)\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function ensureAllSceneCharactersInImagePrompt(
   prompt: string,
   sceneCharacters: StoryCharacter[],
 ): string {
-  const missing = characterNamesMissingFromPrompt(prompt, sceneCharacters);
-  if (missing.length === 0) {
-    return prompt;
-  }
-
-  const roster = `All ${sceneCharacters.length} characters visible: ${sceneCharacters
-    .map((character) => character.name)
-    .join(", ")}`;
-  return `${roster}. ${prompt.trim()} ${buildCompactCharacterTags(missing)}`.trim();
+  return ensureAllSceneCharactersInTierAPrompt(prompt, sceneCharacters);
 }
 
 export function sanitizeImagePrompt(
-  text: string,
+  _text: string,
   scene: SceneScript,
   sceneCharacters: StoryCharacter[],
   visualStyle?: SeriesVisualStyle,
 ): string {
-  const wordBudget = imagePromptWordBudget(sceneCharacters.length);
   let prompt = buildFluxOptimizedImagePrompt(
     scene,
     sceneCharacters,
@@ -312,14 +164,8 @@ export function sanitizeImagePrompt(
   );
 
   prompt = ensureAllSceneCharactersInImagePrompt(prompt, sceneCharacters);
-  prompt = enhanceImagePromptForTalking(prompt, scene);
 
-  return clampImagePromptPreservingCharacters(
-    scene,
-    sceneCharacters,
-    visualStyle,
-    wordBudget,
-  );
+  return prompt;
 }
 
 function parsePromptPair(
@@ -409,18 +255,13 @@ function buildPromptRequest(
     speakingNames.length > 0
       ? `
 Talking characters in this scene: ${speakingNames.join(", ")}.
-- imagePrompt: show speaking characters with engaged expressions and mouths slightly open mid-conversation
-- videoPrompt: include subtle lip sync, jaw motion, and small conversational gestures for whoever is speaking`
+- videoPrompt only: include subtle lip sync, jaw motion, and small conversational gestures for whoever is speaking`
       : "";
 
   const sourceRules = sourceContext ? `\n${promptRulesWithSource()}` : "";
   const characterCount = sceneCharacters.length;
   const imageWordBudget = imagePromptWordBudget(characterCount);
   const sceneTemplate = classifySceneImageTemplate(scene);
-  const portraitHint =
-    resolvedStyle.orientation === "portrait" && characterCount >= 3
-      ? "- Portrait frame: use a wide group shot so every listed character fits in frame"
-      : "";
 
   return appendSourceMaterial(
     `Create two prompts for scene ${scene.sceneNumber} of a short film pipeline.
@@ -434,19 +275,15 @@ Return ONLY valid JSON in this exact shape:
 ${imagePromptLanguageRule(language)}
 ${videoPromptLanguageRule(language, videoMode)}
 
-IMAGE PROMPT (FLUX — CLIP hard limit 77 tokens):
+IMAGE PROMPT (FLUX Tier A — ~${imageWordBudget} words, CLIP 77-token hard limit):
 - Maximum ${imageWordBudget} words — never exceed this
 - Scene template for this shot: ${sceneTemplate}
-- Required format: "[series style lock]. [scene visual from script]. [composition hint]. All ${characterCount} characters visible: ${sceneCharacters.map((c) => c.name).join(", ")}. Name: visual trait tag (hair, skin, outfit colors); Name: visual trait tag. ${animationSuffix}"
-- Always follow the scene visual description above — do not invent new locations or poses
-- Put every character name in the first three sentences
-- Use visual trait tags (max 10 words per character — hair, skin tone, outfit colors, props)
-- Include ALL ${characterCount} character(s) listed below — never omit anyone
-${portraitHint}
+- Required format: "[scene action from visual description]. Name: visual tag; Name: visual tag. All ${characterCount} visible: ${sceneCharacters.map((c) => c.name).join(", ")}. [short composition]. ${animationSuffix}"
+- Use each character's visual trait tag from the character list below (locked tags are authoritative)
+- Always follow the scene visual description — do not invent new locations or poses
+- Do NOT include guardrails, resolution, aspect ratio, camera movement, or talking/lip hints (added server-side)
 - Do NOT use live-action, photorealistic, or documentary language
-- Do NOT include resolution, aspect ratio, or pixel dimensions
-- Do NOT describe camera movement or animation
-- Avoid on-screen text, subtitles, split screens, or duplicate clones of the same character${sourceRules}
+- Avoid on-screen text, subtitles, split screens, or duplicate clones${sourceRules}
 ${talkingRules}
 
 ${videoPromptBlock}

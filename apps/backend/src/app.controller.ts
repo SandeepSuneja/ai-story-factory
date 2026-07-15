@@ -139,6 +139,8 @@ export class AppController {
       body.visualStyle,
       body.characters ?? [],
       body.castReferenceImagePath,
+      body.masterSceneImagePath,
+      body.regenerate === true,
     );
   }
 

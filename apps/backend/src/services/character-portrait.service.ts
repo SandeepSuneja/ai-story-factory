@@ -3,6 +3,7 @@ import { access, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import type { SeriesVisualStyle, StoryCharacter } from "../content-state";
 import {
+  buildSceneCharacterIdentityTag,
   buildCharacterPortraitPrompt,
   characterPortraitSeed,
   deterministicSeed,
@@ -12,6 +13,7 @@ import { FluxService } from "./flux.service";
 
 interface PortraitMeta {
   appearanceHash: number;
+  visualIdentityTag?: string;
 }
 
 @Injectable()
@@ -39,7 +41,9 @@ export class CharacterPortraitService {
     }
   }
 
-  private async readPortraitMeta(characterId: string): Promise<number | null> {
+  private async readPortraitMeta(
+    characterId: string,
+  ): Promise<PortraitMeta | null> {
     try {
       const raw = await readFile(
         join(
@@ -49,9 +53,10 @@ export class CharacterPortraitService {
         "utf-8",
       );
       const parsed = JSON.parse(raw) as PortraitMeta;
-      return typeof parsed.appearanceHash === "number"
-        ? parsed.appearanceHash
-        : null;
+      if (typeof parsed.appearanceHash !== "number") {
+        return null;
+      }
+      return parsed;
     } catch {
       return null;
     }
@@ -60,13 +65,17 @@ export class CharacterPortraitService {
   private async writePortraitMeta(
     characterId: string,
     appearanceHash: number,
+    visualIdentityTag: string,
   ): Promise<void> {
     await writeFile(
       join(
         this.flux.getStorageDirectory(),
         this.portraitMetaFilename(characterId),
       ),
-      JSON.stringify({ appearanceHash } satisfies PortraitMeta),
+      JSON.stringify({
+        appearanceHash,
+        visualIdentityTag,
+      } satisfies PortraitMeta),
       "utf-8",
     );
   }
@@ -100,24 +109,37 @@ export class CharacterPortraitService {
       const filename = this.portraitFilename(character.id);
       const canonicalPath = `/images/${filename}`;
       const hash = this.appearanceHash(character);
-      const storedHash = await this.readPortraitMeta(character.id);
+      const storedMeta = await this.readPortraitMeta(character.id);
       const hasCurrentPortrait =
-        (await this.portraitFileExists(filename)) && storedHash === hash;
+        (await this.portraitFileExists(filename)) &&
+        storedMeta?.appearanceHash === hash;
 
       if (hasCurrentPortrait) {
+        const visualIdentityTag =
+          storedMeta?.visualIdentityTag?.trim() ||
+          buildSceneCharacterIdentityTag(character.appearance, 10);
         updated.push({
           ...character,
           referenceImagePath: canonicalPath,
+          visualIdentityTag,
         });
         continue;
       }
 
+      const visualIdentityTag = buildSceneCharacterIdentityTag(
+        character.appearance,
+        10,
+      );
       const referenceImagePath = await this.generatePortrait(
         character,
         visualStyle,
       );
-      await this.writePortraitMeta(character.id, hash);
-      updated.push({ ...character, referenceImagePath });
+      await this.writePortraitMeta(character.id, hash, visualIdentityTag);
+      updated.push({
+        ...character,
+        referenceImagePath,
+        visualIdentityTag,
+      });
     }
 
     return updated;

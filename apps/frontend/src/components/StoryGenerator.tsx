@@ -59,6 +59,7 @@ import {
   resolveEffectiveReviewStep,
   serializePipelineState,
   shouldReviewImagesStep,
+  shouldReviewScene1Gate,
 } from '../utils/pipeline-state';
 import {
   buildVideoVariantState,
@@ -118,6 +119,23 @@ function getStepNumber(step: PipelineStep): number {
 
 function countUpscaledScenes(scenes: SceneScript[]): number {
   return scenes.filter((scene) => scene.upscaledVideoPath?.trim()).length;
+}
+
+function resolveMasterSceneImagePath(
+  sceneNumber: number,
+  scene1ImageApproved: boolean,
+  masterSceneImagePath: string | null,
+  imageScenes: SceneScript[],
+): string | undefined {
+  if (sceneNumber <= 1 || !scene1ImageApproved) {
+    return undefined;
+  }
+
+  return (
+    masterSceneImagePath?.trim() ||
+    imageScenes.find((entry) => entry.sceneNumber === 1)?.imagePath?.trim() ||
+    undefined
+  );
 }
 
 function normalizeLegacyStep(step: PipelineStep | null): PipelineStep | null {
@@ -210,6 +228,8 @@ export function StoryGenerator() {
   const [finalVideoPath, setFinalVideoPath] = useState<string | null>(null);
   const [characters, setCharacters] = useState<StoryCharacter[]>([]);
   const [castReferenceImagePath, setCastReferenceImagePath] = useState<string | null>(null);
+  const [scene1ImageApproved, setScene1ImageApproved] = useState(false);
+  const [masterSceneImagePath, setMasterSceneImagePath] = useState<string | null>(null);
   const [reusedCharacterNames, setReusedCharacterNames] = useState<string[]>([]);
   const [seriesId, setSeriesId] = useState<string | null>(null);
   const [knowledgeSourceId, setKnowledgeSourceId] = useState<string | null>(null);
@@ -277,6 +297,8 @@ export function StoryGenerator() {
     setScriptScenes(normalized.scriptScenes);
     setCharacters(normalized.characters);
     setCastReferenceImagePath(normalized.castReferenceImagePath ?? null);
+    setScene1ImageApproved(Boolean(normalized.scene1ImageApproved));
+    setMasterSceneImagePath(normalized.masterSceneImagePath ?? null);
     setSeriesId(normalized.seriesId ?? null);
     setKnowledgeSourceId(normalized.knowledgeSourceId ?? null);
     setSourceFidelityMode(Boolean(normalized.sourceFidelityMode));
@@ -302,6 +324,9 @@ export function StoryGenerator() {
     let nextPipelineError = normalized.pipelineError;
 
     if (
+      shouldReviewScene1Gate({
+        ...normalized,
+      }) ||
       shouldReviewImagesStep({
         ...normalized,
         failedStep: nextFailedStep,
@@ -347,6 +372,8 @@ export function StoryGenerator() {
         scriptScenes,
         characters,
         castReferenceImagePath,
+        scene1ImageApproved,
+        masterSceneImagePath,
         seriesId,
         sourceProjectId,
         knowledgeSourceId,
@@ -373,6 +400,8 @@ export function StoryGenerator() {
       scriptScenes,
       characters,
       castReferenceImagePath,
+      scene1ImageApproved,
+      masterSceneImagePath,
       seriesId,
       sourceProjectId,
       knowledgeSourceId,
@@ -632,21 +661,25 @@ export function StoryGenerator() {
     }
 
     if (
-      !shouldReviewImagesStep({
+      shouldReviewScene1Gate({
+        promptedScenes,
+        imageScenes,
+        scene1ImageApproved,
+      }) ||
+      shouldReviewImagesStep({
         reviewStep,
         approvedThroughIndex,
         promptedScenes,
         imageScenes,
         currentStep,
         failedStep,
+        scene1ImageApproved,
       })
     ) {
-      return;
+      setReviewStep('images');
+      setFailedStep(null);
+      setError(null);
     }
-
-    setReviewStep('images');
-    setFailedStep(null);
-    setError(null);
   }, [
     loading,
     reviewStep,
@@ -655,6 +688,7 @@ export function StoryGenerator() {
     imageScenes,
     currentStep,
     failedStep,
+    scene1ImageApproved,
   ]);
 
   function resetPipelineState() {
@@ -883,6 +917,8 @@ export function StoryGenerator() {
         setVideoScenes([]);
         setAudioScenes([]);
         setFinalVideoPath(null);
+        setScene1ImageApproved(false);
+        setMasterSceneImagePath(null);
         break;
       case 'prompts':
         setPromptedScenes([]);
@@ -890,12 +926,16 @@ export function StoryGenerator() {
         setVideoScenes([]);
         setAudioScenes([]);
         setFinalVideoPath(null);
+        setScene1ImageApproved(false);
+        setMasterSceneImagePath(null);
         break;
       case 'images':
         setImageScenes([]);
         setVideoScenes([]);
         setAudioScenes([]);
         setFinalVideoPath(null);
+        setScene1ImageApproved(false);
+        setMasterSceneImagePath(null);
         break;
       case 'videos':
         setVideoScenes([]);
@@ -1014,6 +1054,27 @@ export function StoryGenerator() {
           }
           const startIndex = options.resume ? imageScenes.length : 0;
           const scenesWithImages = options.resume ? [...imageScenes] : [];
+
+          if (
+            !scene1ImageApproved &&
+            promptedScenes.length > 1 &&
+            startIndex === 0 &&
+            !options.resume
+          ) {
+            setSceneProgressIndex(0);
+            const response = await generateImage({
+              scene: promptedScenes[0],
+              visualStyle,
+              characters,
+              castReferenceImagePath: castReferenceImagePath ?? undefined,
+            });
+            setImageScenes([response.scene]);
+            setReviewStep('images');
+            setCurrentStep('images');
+            revealStep(7);
+            break;
+          }
+
           for (let index = startIndex; index < promptedScenes.length; index++) {
             setSceneProgressIndex(index);
             const response = await generateImage({
@@ -1021,6 +1082,12 @@ export function StoryGenerator() {
               visualStyle,
               characters,
               castReferenceImagePath: castReferenceImagePath ?? undefined,
+              masterSceneImagePath: resolveMasterSceneImagePath(
+                promptedScenes[index].sceneNumber,
+                scene1ImageApproved,
+                masterSceneImagePath,
+                scenesWithImages.length > 0 ? scenesWithImages : imageScenes,
+              ),
             });
             scenesWithImages.push(response.scene);
             setImageScenes([...scenesWithImages]);
@@ -1265,6 +1332,7 @@ export function StoryGenerator() {
       imageScenes,
       currentStep,
       failedStep,
+      scene1ImageApproved,
     });
 
     if (!step) {
@@ -1283,6 +1351,25 @@ export function StoryGenerator() {
       setApprovedThroughIndex(STEP_ORDER.indexOf('visual'));
       setReviewStep(null);
       await runStep('prompts');
+      return;
+    }
+
+    if (
+      step === 'images' &&
+      shouldReviewScene1Gate({
+        promptedScenes,
+        imageScenes,
+        scene1ImageApproved,
+      })
+    ) {
+      const master =
+        imageScenes.find((scene) => scene.sceneNumber === 1)?.imagePath ??
+        imageScenes[0]?.imagePath ??
+        null;
+      setScene1ImageApproved(true);
+      setMasterSceneImagePath(master);
+      setReviewStep(null);
+      await runStep('images', { resume: true });
       return;
     }
 
@@ -1352,9 +1439,22 @@ export function StoryGenerator() {
       imageScenes,
       currentStep,
       failedStep,
+      scene1ImageApproved,
     });
 
     if (!step) {
+      return;
+    }
+
+    if (
+      step === 'images' &&
+      shouldReviewScene1Gate({
+        promptedScenes,
+        imageScenes,
+        scene1ImageApproved,
+      })
+    ) {
+      await regenerateSceneImage(0);
       return;
     }
 
@@ -1416,10 +1516,22 @@ export function StoryGenerator() {
         visualStyle,
         characters,
         castReferenceImagePath: castReferenceImagePath ?? undefined,
+        masterSceneImagePath: resolveMasterSceneImagePath(
+          scene.sceneNumber,
+          scene1ImageApproved,
+          masterSceneImagePath,
+          imageScenes,
+        ),
+        regenerate: true,
       });
       setImageScenes((current) => {
         const next = [...current];
         next[index] = response.scene;
+        if (index === 0 && promptedScenes.length > 1) {
+          setScene1ImageApproved(false);
+          setMasterSceneImagePath(null);
+          return next.slice(0, 1);
+        }
         return next;
       });
     } catch (err) {
@@ -1539,7 +1651,16 @@ export function StoryGenerator() {
     imageScenes,
     currentStep,
     failedStep,
+    scene1ImageApproved,
   });
+
+  const isScene1GateActive =
+    effectiveReviewStep === 'images' &&
+    shouldReviewScene1Gate({
+      promptedScenes,
+      imageScenes,
+      scene1ImageApproved,
+    });
 
   const orderedImageScenes = sortScenesByNumber(imageScenes);
   const isProfessionalMode = videoGenerationMode === 'professional';
@@ -1851,29 +1972,41 @@ export function StoryGenerator() {
             description={
               effectiveReviewStep === 'visual'
                 ? 'Choose screen orientation and animation style. These values are applied when generating image and video prompts.'
+                : isScene1GateActive
+                  ? `Scene 1 of ${promptedScenes.length} is ready. The forest background is generated from the scene prompt; approved characters are placed in the correct poses. Review layout and faces, regenerate if needed, then approve for Kontext scenes 2–${promptedScenes.length}.`
                 : hasMoreVideosToGenerate
                 ? `Scene ${countUpscaledScenes(videoScenes)} of ${orderedImageScenes.length} is ready at 1080p. Review below, regenerate if needed, then continue.`
                 : isProfessionalMode &&
                     effectiveReviewStep === 'videos' &&
                     pendingProfessionalUploadScene
                   ? `Upload scene ${pendingProfessionalUploadScene.sceneNumber} of ${orderedImageScenes.length}. It will be upscaled to 1080p automatically.`
-                  : undefined
+                  : effectiveReviewStep === 'images'
+                    ? 'Review all scene images for character consistency, then continue to video generation.'
+                    : undefined
             }
             regenerateLabel={
               effectiveReviewStep === 'visual'
                 ? undefined
                 : hasMoreVideosToGenerate
                   ? 'Regenerate scene'
-                  : undefined
+                  : isScene1GateActive
+                    ? 'Regenerate Scene 1'
+                    : effectiveReviewStep === 'images'
+                      ? 'Regenerate images'
+                      : undefined
             }
             approveLabel={
               effectiveReviewStep === 'visual'
                 ? 'Generate prompts'
+                : isScene1GateActive
+                  ? `Approve Scene 1 & generate scenes 2–${promptedScenes.length}`
                 : hasMoreVideosToGenerate
                 ? `Generate scene ${countUpscaledScenes(videoScenes) + 1} of ${orderedImageScenes.length}`
                 : effectiveReviewStep === 'videos'
                   ? 'Approve videos & continue'
-                  : undefined
+                  : effectiveReviewStep === 'images'
+                    ? 'Approve images & continue'
+                    : undefined
             }
             hideRegenerate={effectiveReviewStep === 'visual'}
             onApprove={approveAndContinue}

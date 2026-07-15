@@ -13,6 +13,7 @@ import { VideoJobService } from './services/video-job.service';
 import { ImageJobService } from './services/image-job.service';
 import { CharacterPortraitService } from './services/character-portrait.service';
 import { CastSheetService } from './services/cast-sheet.service';
+import { CharacterLoraService } from './services/character-lora.service';
 import { SeriesService } from './services/series.service';
 import { RetrievalService } from './services/retrieval.service';
 import { AppController } from './app.controller';
@@ -54,6 +55,10 @@ describe('AppController', () => {
         {
           provide: CastSheetService,
           useValue: { ensureCastSheet: jest.fn() },
+        },
+        {
+          provide: CharacterLoraService,
+          useValue: { ensureLoras: jest.fn(), ensureLora: jest.fn() },
         },
         {
           provide: SeriesService,

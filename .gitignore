@@ -14,3 +14,4 @@ apps/backend/tts-service/.venv/
 apps/backend/assembly-service/.venv/
 apps/backend/upscale-service/.venv/
 apps/backend/rag-service/.venv/
+apps/backend/sdxl-service/.venv/

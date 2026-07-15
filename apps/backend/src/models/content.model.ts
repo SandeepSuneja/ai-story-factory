@@ -76,6 +76,9 @@ export class GenerateImageRequestDto {
   visualStyle?: SeriesVisualStyle;
   characters?: StoryCharacter[];
   castReferenceImagePath?: string;
+  masterSceneImagePath?: string;
+  /** Fresh random seed so regenerate does not repeat the prior image. */
+  regenerate?: boolean;
 }
 
 export class EnsureCharacterPortraitsRequestDto {

@@ -1,4 +1,6 @@
 torch>=2.1.0
+# FluxKontextPipeline (Tier B) may require diffusers main until a stable release ships:
+# pip install -U git+https://github.com/huggingface/diffusers.git
 diffusers>=0.32.0
 transformers>=4.44.0
 accelerate>=0.33.0

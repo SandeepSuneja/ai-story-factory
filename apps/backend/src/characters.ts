@@ -71,8 +71,11 @@ function normalizeCharacterRecord(
   }
 
   const referenceImagePath = String(value.referenceImagePath ?? "").trim() || undefined;
+  const visualIdentityTag =
+    String(value.visualIdentityTag ?? "").trim() || undefined;
+  const loraPath = String(value.loraPath ?? "").trim() || undefined;
 
-  return { id, name, role, appearance, voice, referenceImagePath };
+  return { id, name, role, appearance, voice, referenceImagePath, visualIdentityTag, loraPath };
 }
 
 export function normalizeCharacters(
@@ -627,6 +630,18 @@ export function buildSceneCharacterIdentityTag(
   return buildSceneAppearanceTag(appearance, maxWords);
 }
 
+/** Scene prompts prefer the locked tag from the approved portrait. */
+export function buildSceneCharacterTagForPrompt(
+  character: StoryCharacter,
+  maxWords = 8,
+): string {
+  const locked = character.visualIdentityTag?.trim();
+  if (locked) {
+    return truncateToWordCount(locked, maxWords);
+  }
+  return buildSceneCharacterIdentityTag(character.appearance, maxWords);
+}
+
 export function buildSceneImageGuardrails(): string {
   return "no glasses, no spectacles, no eyeglasses, no modern accessories, ancient Indian Vedic forest";
 }
@@ -735,8 +750,10 @@ export function castSheetSeed(characterIds: string[]): number {
 
 export type SceneReferenceKind =
   | "cast_sheet"
+  | "face_sheet"
   | "portrait"
   | "portrait_extension"
+  | "master_scene"
   | "none";
 
 export function resolveSceneReferenceImages(
@@ -744,7 +761,7 @@ export function resolveSceneReferenceImages(
   characters: StoryCharacter[],
   castReferenceImagePath?: string,
 ): { paths: string[]; referenceKind: SceneReferenceKind } {
-  const mode = (process.env.FLUX_SCENE_REFERENCE_MODE ?? "speaker").trim();
+  const mode = (process.env.FLUX_SCENE_REFERENCE_MODE ?? "cast_sheet").trim();
   const sceneCharacters = getCharactersForScene(scene, characters);
 
   if (mode === "off") {
@@ -781,7 +798,7 @@ export function formatCharactersForPrompt(
   return characters
     .map(
       (character) =>
-        `${character.name} (${character.role}): ${buildSceneCharacterIdentityTag(character.appearance, 14)}`,
+        `${character.name} (${character.role}): ${buildSceneCharacterTagForPrompt(character, 14)}`,
     )
     .join("\n");
 }
@@ -790,7 +807,7 @@ export function buildCompactCharacterTags(characters: StoryCharacter[]): string 
   return characters
     .map(
       (character) =>
-        `${character.name}: ${buildSceneCharacterIdentityTag(character.appearance, 12)}`,
+        `${character.name}: ${buildSceneCharacterTagForPrompt(character, 12)}`,
     )
     .join("; ");
 }
@@ -854,6 +871,24 @@ export function mergeCharacterLibraries(
       byName.set(key, {
         ...character,
         referenceImagePath: previous.referenceImagePath,
+        visualIdentityTag:
+          character.visualIdentityTag ?? previous.visualIdentityTag,
+        loraPath: character.loraPath ?? previous.loraPath,
+      });
+      continue;
+    }
+    if (previous?.visualIdentityTag && !character.visualIdentityTag) {
+      byName.set(key, {
+        ...character,
+        visualIdentityTag: previous.visualIdentityTag,
+        loraPath: character.loraPath ?? previous.loraPath,
+      });
+      continue;
+    }
+    if (previous?.loraPath && !character.loraPath) {
+      byName.set(key, {
+        ...character,
+        loraPath: previous.loraPath,
       });
       continue;
     }

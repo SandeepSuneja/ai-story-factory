@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import socket
 import uuid
 from pathlib import Path
 
@@ -50,7 +51,13 @@ IP_ADAPTER_SCENE_SCALE = float(
     os.environ.get("FLUX_SCENE_IP_ADAPTER_SCALE", "0.65"),
 )
 IP_ADAPTER_CAST_SHEET_SCALE = float(
-    os.environ.get("FLUX_CAST_SHEET_IP_ADAPTER_SCALE", "0.35"),
+    os.environ.get("FLUX_CAST_SHEET_IP_ADAPTER_SCALE", "0.55"),
+)
+IP_ADAPTER_FACE_SHEET_SCALE = float(
+    os.environ.get("FLUX_FACE_SHEET_IP_ADAPTER_SCALE", "0.80"),
+)
+IP_ADAPTER_MASTER_SCENE_SCALE = float(
+    os.environ.get("FLUX_MASTER_SCENE_IP_ADAPTER_SCALE", "0.72"),
 )
 IP_ADAPTER_FULLBODY_SCALE = float(
     os.environ.get("FLUX_FULLBODY_IP_ADAPTER_SCALE", "0.88"),
@@ -67,6 +74,13 @@ def env_bool(name: str, default: bool) -> bool:
 
 # Scene IP-Adapter is off by default; cast-sheet references opt in automatically.
 IP_ADAPTER_FOR_SCENES = env_bool("FLUX_USE_IP_ADAPTER_FOR_SCENES", False)
+KONTEXT_MODEL_ID = os.environ.get(
+    "FLUX_KONTEXT_MODEL_ID",
+    "black-forest-labs/FLUX.1-Kontext-dev",
+).strip()
+KONTEXT_ENABLED = env_bool("FLUX_USE_KONTEXT_FOR_SCENES", True)
+KONTEXT_GUIDANCE_SCALE = float(os.environ.get("FLUX_KONTEXT_GUIDANCE_SCALE", "2.5"))
+KONTEXT_NUM_STEPS = int(os.environ.get("FLUX_KONTEXT_INFERENCE_STEPS", "28"))
 # full = all weights on GPU (needs ~24GB VRAM)
 # model = move one component at a time (good for 16GB)
 # sequential = submodule-level offload (safest for 12GB)
@@ -90,6 +104,8 @@ logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="FLUX Image Service")
 pipe: FluxPipeline | None = None
+kontext_pipe = None
+kontext_load_failed = False
 ip_adapter_loaded = False
 
 
@@ -418,9 +434,25 @@ def select_ip_adapter_references(
     return [reference_images[0]]
 
 
-def normalize_ip_adapter_reference(image: Image.Image) -> Image.Image:
-    """Square-pad portrait refs instead of stretching them to the scene aspect ratio."""
+def normalize_ip_adapter_reference(
+    image: Image.Image,
+    reference_kind: str | None = None,
+) -> Image.Image:
+    """Prepare reference images for IP-Adapter — landscape face sheets keep faces large."""
     target = max(224, min(IP_ADAPTER_REFERENCE_SIZE, 768))
+
+    if reference_kind in ("face_sheet", "master_scene") and image.width > image.height:
+        fitted = image.copy()
+        scale = target / fitted.height
+        new_w = max(1, int(fitted.width * scale))
+        fitted = fitted.resize((new_w, target), Image.Resampling.LANCZOS)
+        if new_w >= target:
+            left = (new_w - target) // 2
+            return fitted.crop((left, 0, left + target, target))
+        canvas = Image.new("RGB", (target, target), (0, 0, 0))
+        canvas.paste(fitted, ((target - new_w) // 2, 0))
+        return canvas
+
     fitted = image.copy()
     fitted.thumbnail((target, target), Image.Resampling.LANCZOS)
     canvas = Image.new("RGB", (target, target), (0, 0, 0))
@@ -432,6 +464,7 @@ def normalize_ip_adapter_reference(image: Image.Image) -> Image.Image:
 def prepare_ip_adapter_reference_images(
     pipeline: FluxPipeline,
     reference_images: list[Image.Image],
+    reference_kind: str | None = None,
 ) -> Image.Image | list[Image.Image]:
     """Return exactly num_ip_adapters normalized reference image(s) for diffusers."""
     slot_count = ip_adapter_slot_count(pipeline)
@@ -439,7 +472,10 @@ def prepare_ip_adapter_reference_images(
         raise ValueError("IP-Adapter is not loaded")
 
     selected = select_ip_adapter_references(reference_images)
-    normalized = [normalize_ip_adapter_reference(image) for image in selected]
+    normalized = [
+        normalize_ip_adapter_reference(image, reference_kind)
+        for image in selected
+    ]
 
     if len(normalized) == slot_count:
         return normalized[0] if slot_count == 1 else normalized
@@ -485,7 +521,7 @@ def should_use_scene_ip_adapter(
 ) -> bool:
     if scene_number == 0:
         return bool(reference_images)
-    if reference_kind in ("cast_sheet", "portrait") and reference_images:
+    if reference_kind in ("cast_sheet", "portrait", "master_scene", "face_sheet") and reference_images:
         return True
     return False
 
@@ -512,8 +548,12 @@ def configure_ip_adapter_inputs(
 
     if scene_number > 0:
         scene_scale = (
-            IP_ADAPTER_CAST_SHEET_SCALE
+            IP_ADAPTER_FACE_SHEET_SCALE
+            if reference_kind == "face_sheet"
+            else IP_ADAPTER_CAST_SHEET_SCALE
             if reference_kind == "cast_sheet"
+            else IP_ADAPTER_MASTER_SCENE_SCALE
+            if reference_kind == "master_scene"
             else IP_ADAPTER_SCENE_SCALE
         )
     elif reference_kind == "portrait_extension":
@@ -522,7 +562,11 @@ def configure_ip_adapter_inputs(
         scene_scale = IP_ADAPTER_SCALE
 
     if reference_images and ensure_ip_adapter(pipeline):
-        prepared = prepare_ip_adapter_reference_images(pipeline, reference_images)
+        prepared = prepare_ip_adapter_reference_images(
+            pipeline,
+            reference_images,
+            reference_kind,
+        )
         attach_ip_adapter_kwargs(pipe_kwargs, prepared)
         pipeline.set_ip_adapter_scale(scene_scale)
         if scene_number > 0:
@@ -676,6 +720,68 @@ def compose_cast_sheet(
     return filename, f"/images/{filename}"
 
 
+def compose_face_reference_sheet(
+    reference_image_paths: list[str],
+    *,
+    filename_prefix: str | None = None,
+    canvas_width: int | None = None,
+    canvas_height: int | None = None,
+) -> tuple[str, str]:
+    """Landscape face lineup — large approved portraits for Scene 1 IP conditioning."""
+    images = resolve_reference_images(reference_image_paths)
+    if len(images) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="At least two portrait reference images are required",
+        )
+
+    width = canvas_width or IMAGE_WIDTH
+    height = canvas_height or IMAGE_HEIGHT
+    canvas = Image.new("RGB", (width, height), CAST_SHEET_BACKGROUND)
+
+    slot_count = len(images)
+    slot_width = width // slot_count
+    padding = max(8, width // 64)
+
+    for index, image in enumerate(images):
+        fitted = image.copy()
+        max_width = max(120, slot_width - padding * 2)
+        max_height = max(120, height - padding)
+        fitted.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+        if fitted.height < int(max_height * 0.9):
+            scale = (max_height * 0.95) / max(fitted.height, 1)
+            new_w = min(max_width, max(1, int(fitted.width * scale)))
+            new_h = min(max_height, max(1, int(fitted.height * scale)))
+            fitted = fitted.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        x = index * slot_width + (slot_width - fitted.width) // 2
+        y = (height - fitted.height) // 2
+        canvas.paste(fitted, (x, max(padding // 3, y)))
+
+    prefix = re.sub(
+        r"[^a-z0-9-]+",
+        "-",
+        (filename_prefix or "face-sheet").lower(),
+    ).strip("-")
+    filename = f"{prefix or 'face-sheet'}.png"
+    output_path = STORAGE_DIR / filename
+    canvas.save(output_path)
+    logger.info(
+        "Composed landscape face reference sheet from %s portrait(s): %s (%sx%s)",
+        len(images),
+        filename,
+        width,
+        height,
+    )
+    return filename, f"/images/{filename}"
+
+
+class ComposeFaceReferenceSheetRequest(BaseModel):
+    reference_image_paths: list[str] = Field(min_length=2)
+    filename_prefix: str | None = Field(default=None, min_length=1, max_length=80)
+    canvas_width: int | None = Field(default=None, ge=256, le=2048)
+    canvas_height: int | None = Field(default=None, ge=256, le=2048)
+
+
 class ComposeCastSheetRequest(BaseModel):
     reference_image_paths: list[str] = Field(min_length=2)
     filename_prefix: str | None = Field(default=None, min_length=1, max_length=80)
@@ -707,10 +813,27 @@ class GenerateImageResponse(BaseModel):
     imagePath: str
 
 
+def ensure_port_available(host: str, port: int) -> None:
+    """Fail fast before loading FLUX if another process already owns the port."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind((host, port))
+    except OSError as error:
+        raise SystemExit(
+            f"Port {port} on {host} is already in use. "
+            f"Stop the other FLUX service with: "
+            f"netstat -ano | findstr :{port}  then  taskkill /PID <pid> /F  "
+            f"Or set FLUX_PORT to a free port."
+        ) from error
+    finally:
+        probe.close()
+
+
 @app.on_event("startup")
 def load_model() -> None:
     global pipe
 
+    ensure_port_available(HOST, PORT)
     STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
     device = resolve_device()
@@ -736,6 +859,140 @@ def load_model() -> None:
     )
 
 
+def ensure_kontext_pipeline():
+    """Lazy-load FLUX Kontext for Tier B scene continuity (scenes 2+ from master image)."""
+    global kontext_pipe, kontext_load_failed
+
+    if kontext_pipe is not None:
+        return kontext_pipe
+    if kontext_load_failed or not KONTEXT_ENABLED or not KONTEXT_MODEL_ID:
+        return None
+
+    try:
+        from diffusers import FluxKontextPipeline
+    except ImportError as error:
+        logger.warning("FluxKontextPipeline unavailable (upgrade diffusers): %s", error)
+        kontext_load_failed = True
+        return None
+
+    device = resolve_device()
+    dtype = torch.bfloat16 if device != "cpu" else torch.float32
+    try:
+        loaded = FluxKontextPipeline.from_pretrained(
+            KONTEXT_MODEL_ID,
+            torch_dtype=dtype,
+            low_cpu_mem_usage=True,
+        )
+        configure_pipeline_memory(loaded, device)
+        kontext_pipe = loaded
+        logger.info(
+            "FLUX Kontext pipeline loaded model=%s guidance=%s steps=%s",
+            KONTEXT_MODEL_ID,
+            KONTEXT_GUIDANCE_SCALE,
+            KONTEXT_NUM_STEPS,
+        )
+        return kontext_pipe
+    except Exception as error:
+        logger.warning("Failed to load FLUX Kontext pipeline: %s", error)
+        kontext_load_failed = True
+        return None
+
+
+def prepare_kontext_prompt(prompt: str) -> str:
+    """Reuse CLIP compression when the main FLUX pipeline is loaded."""
+    if pipe is not None:
+        return prepare_flux_prompt(prompt, pipe)
+    text = strip_flux_boilerplate(prompt) or prompt.strip()
+    return append_scene_guard(text)
+
+
+def resize_source_image(image: Image.Image, width: int, height: int) -> Image.Image:
+    if image.size == (width, height):
+        return image
+    return image.resize((width, height), Image.Resampling.LANCZOS)
+
+
+class GenerateFromImageRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    source_image_path: str = Field(min_length=1)
+    scene_number: int = Field(ge=1)
+    orientation: str = Field(default="landscape")
+    width: int | None = Field(default=None, ge=256, le=2048)
+    height: int | None = Field(default=None, ge=256, le=2048)
+    seed: int | None = Field(default=None, ge=0)
+    filename_prefix: str | None = Field(default=None, min_length=1, max_length=80)
+
+
+@app.post("/generate-from-image", response_model=GenerateImageResponse)
+def generate_from_image(request: GenerateFromImageRequest) -> GenerateImageResponse:
+    kpipe = ensure_kontext_pipeline()
+    if kpipe is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "FLUX Kontext pipeline is not available. "
+                "Install diffusers with FluxKontextPipeline support or set "
+                "FLUX_USE_KONTEXT_FOR_SCENES=false to use master-scene IP-Adapter fallback."
+            ),
+        )
+
+    source_images = resolve_reference_images([request.source_image_path])
+    if not source_images:
+        raise HTTPException(status_code=400, detail="Source image not found")
+
+    prefix = re.sub(
+        r"[^a-z0-9-]+",
+        "-",
+        (request.filename_prefix or "").lower(),
+    ).strip("-")
+    filename = (
+        f"{prefix}.png"
+        if prefix
+        else f"scene-{request.scene_number}-{uuid.uuid4().hex}.png"
+    )
+    output_path = STORAGE_DIR / filename
+    width = request.width or (
+        IMAGE_HEIGHT if request.orientation == "portrait" else IMAGE_WIDTH
+    )
+    height = request.height or (
+        IMAGE_WIDTH if request.orientation == "portrait" else IMAGE_HEIGHT
+    )
+    source = resize_source_image(source_images[0], width, height)
+    flux_prompt = prepare_kontext_prompt(request.prompt)
+    generator = resolve_generator(request.seed, resolve_device())
+
+    pipe_kwargs: dict = {
+        "image": source,
+        "prompt": flux_prompt,
+        "height": height,
+        "width": width,
+        "guidance_scale": KONTEXT_GUIDANCE_SCALE,
+        "num_inference_steps": KONTEXT_NUM_STEPS,
+    }
+    if generator is not None:
+        pipe_kwargs["generator"] = generator
+
+    try:
+        with torch.inference_mode():
+            result = kpipe(**pipe_kwargs)
+        image = result.images[0]
+        image.save(output_path)
+    finally:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    logger.info(
+        "Kontext scene %s from master %s -> %s",
+        request.scene_number,
+        request.source_image_path,
+        filename,
+    )
+    return GenerateImageResponse(
+        filename=filename,
+        imagePath=f"/images/{filename}",
+    )
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {
@@ -743,7 +1000,176 @@ def health() -> dict[str, str]:
         "model": MODEL_ID,
         "ip_adapter": str(ip_adapter_loaded),
         "ip_adapter_for_scenes": str(IP_ADAPTER_FOR_SCENES),
+        "kontext_enabled": str(KONTEXT_ENABLED),
+        "kontext_model": KONTEXT_MODEL_ID,
+        "kontext_loaded": str(kontext_pipe is not None),
+        "kontext_available": str(
+            KONTEXT_ENABLED and not kontext_load_failed and bool(KONTEXT_MODEL_ID)
+        ),
     }
+
+
+def generate_text_only_image(
+    prompt: str,
+    *,
+    width: int,
+    height: int,
+    seed: int | None,
+) -> Image.Image:
+    """FLUX text-to-image without visual reference conditioning."""
+    if pipe is None:
+        raise HTTPException(status_code=503, detail="FLUX pipeline is not ready")
+
+    flux_prompt = prepare_flux_prompt(prompt, pipe)
+    pipe_kwargs: dict = {
+        "prompt": flux_prompt,
+        "height": height,
+        "width": width,
+        "guidance_scale": GUIDANCE_SCALE,
+        "num_inference_steps": NUM_INFERENCE_STEPS,
+    }
+    generator = resolve_generator(seed, resolve_device())
+    if generator is not None:
+        pipe_kwargs["generator"] = generator
+    if ip_adapter_loaded:
+        attach_neutral_ip_adapter(pipe, pipe_kwargs)
+
+    with torch.inference_mode():
+        result = pipe(**pipe_kwargs)
+    return result.images[0]
+
+
+def crop_character_reference_for_compose(
+    image: Image.Image,
+    reference_path: str,
+) -> Image.Image:
+    """Use only the portrait head region — full-body refs include a beige robe strip."""
+    normalized = reference_path.replace("\\", "/").lower()
+    if "fullbody" in normalized or image.height > int(image.width * 1.15):
+        head_height = max(48, int(image.height * FULLBODY_HEAD_RATIO))
+        return image.crop((0, 0, image.width, min(head_height, image.height)))
+    return image
+
+
+def prepare_portrait_overlay(image: Image.Image) -> Image.Image:
+    """Portrait RGBA overlay with a soft fade at the bottom edge."""
+    rgba = image.convert("RGBA")
+    width, height = rgba.size
+    fade_start = int(height * 0.82)
+    pixels = rgba.load()
+    for y in range(fade_start, height):
+        fade = 1.0 - ((y - fade_start) / max(1, height - fade_start))
+        alpha = int(255 * fade)
+        for x in range(width):
+            red, green, blue, current_alpha = pixels[x, y]
+            pixels[x, y] = (red, green, blue, min(current_alpha, alpha))
+    return rgba
+
+
+def compose_scene_image(
+    background_prompt: str,
+    placements: list[dict],
+    *,
+    scene_number: int,
+    width: int,
+    height: int,
+    seed: int | None,
+    filename_prefix: str | None = None,
+) -> tuple[str, str]:
+    """Generate an empty scene background, then place approved portrait overlays."""
+    background = generate_text_only_image(
+        background_prompt,
+        width=width,
+        height=height,
+        seed=seed,
+    )
+    canvas = background.convert("RGBA").resize((width, height), Image.Resampling.LANCZOS)
+
+    for placement in placements:
+        reference_path = str(placement.get("reference_image_path", "")).strip()
+        if not reference_path:
+            continue
+        images = resolve_reference_images([reference_path])
+        if not images:
+            logger.warning("Scene compose skipped missing reference: %s", reference_path)
+            continue
+
+        character = crop_character_reference_for_compose(images[0], reference_path)
+        height_ratio = float(placement.get("height_ratio", 0.45))
+        x_ratio = float(placement.get("x_ratio", 0.5))
+        base_y_ratio = float(placement.get("base_y_ratio", 0.9))
+
+        target_h = max(72, int(height * height_ratio))
+        max_w = max(120, int(width * 0.34))
+        fitted = character.copy()
+        fitted.thumbnail((max_w, target_h), Image.Resampling.LANCZOS)
+        overlay = prepare_portrait_overlay(fitted)
+
+        center_x = int(width * x_ratio)
+        base_y = int(height * base_y_ratio)
+        x = center_x - overlay.width // 2
+        y = base_y - overlay.height
+        x = max(0, min(x, width - overlay.width))
+        y = max(0, min(y, height - overlay.height))
+        canvas.paste(overlay, (x, y), overlay)
+
+    prefix = re.sub(
+        r"[^a-z0-9-]+",
+        "-",
+        (filename_prefix or f"scene-{scene_number}-composed").lower(),
+    ).strip("-")
+    filename = f"{prefix}.png"
+    output_path = STORAGE_DIR / filename
+    canvas.convert("RGB").save(output_path)
+    logger.info(
+        "Composed scene %s from background prompt + %s character placement(s): %s",
+        scene_number,
+        len(placements),
+        filename,
+    )
+    return filename, f"/images/{filename}"
+
+
+class SceneCharacterPlacement(BaseModel):
+    reference_image_path: str = Field(min_length=1)
+    x_ratio: float = Field(ge=0, le=1)
+    base_y_ratio: float = Field(ge=0, le=1)
+    height_ratio: float = Field(gt=0, le=1)
+
+
+class ComposeSceneRequest(BaseModel):
+    background_prompt: str = Field(min_length=1)
+    placements: list[SceneCharacterPlacement] = Field(min_length=1)
+    scene_number: int = Field(ge=1)
+    orientation: str = Field(default="landscape")
+    width: int | None = Field(default=None, ge=256, le=2048)
+    height: int | None = Field(default=None, ge=256, le=2048)
+    seed: int | None = Field(default=None, ge=0)
+    filename_prefix: str | None = Field(default=None, min_length=1, max_length=80)
+
+
+@app.post("/compose-scene", response_model=GenerateImageResponse)
+def compose_scene_endpoint(request: ComposeSceneRequest) -> GenerateImageResponse:
+    width = request.width or (
+        IMAGE_HEIGHT if request.orientation == "portrait" else IMAGE_WIDTH
+    )
+    height = request.height or (
+        IMAGE_WIDTH if request.orientation == "portrait" else IMAGE_HEIGHT
+    )
+    try:
+        filename, image_path = compose_scene_image(
+            request.background_prompt,
+            [placement.model_dump() for placement in request.placements],
+            scene_number=request.scene_number,
+            width=width,
+            height=height,
+            seed=request.seed,
+            filename_prefix=request.filename_prefix,
+        )
+    finally:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    return GenerateImageResponse(filename=filename, imagePath=image_path)
 
 
 @app.post("/extend-portrait-fullbody", response_model=GenerateImageResponse)
@@ -752,6 +1178,19 @@ def extend_portrait_fullbody_endpoint(
 ) -> GenerateImageResponse:
     filename, image_path = extend_portrait_to_fullbody(
         request.portrait_image_path,
+        filename_prefix=request.filename_prefix,
+        canvas_width=request.canvas_width,
+        canvas_height=request.canvas_height,
+    )
+    return GenerateImageResponse(filename=filename, imagePath=image_path)
+
+
+@app.post("/compose-face-reference-sheet", response_model=GenerateImageResponse)
+def compose_face_reference_sheet_endpoint(
+    request: ComposeFaceReferenceSheetRequest,
+) -> GenerateImageResponse:
+    filename, image_path = compose_face_reference_sheet(
+        request.reference_image_paths,
         filename_prefix=request.filename_prefix,
         canvas_width=request.canvas_width,
         canvas_height=request.canvas_height,
@@ -848,4 +1287,5 @@ def generate_image(request: GenerateImageRequest) -> GenerateImageResponse:
 
 
 if __name__ == "__main__":
+    ensure_port_available(HOST, PORT)
     uvicorn.run("server:app", host=HOST, port=PORT, reload=False)

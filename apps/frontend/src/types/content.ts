@@ -32,6 +32,10 @@ export interface StoryCharacter {
   appearance: string;
   voice: string;
   referenceImagePath?: string;
+  /** Locked visual tag from approved portrait — source of truth for scene prompts */
+  visualIdentityTag?: string;
+  /** SDXL LoRA trained from approved portrait (Tier C) */
+  loraPath?: string;
 }
 
 export interface SceneScript {
@@ -128,6 +132,9 @@ export interface GenerateImageRequest {
   visualStyle?: SeriesVisualStyle;
   characters?: StoryCharacter[];
   castReferenceImagePath?: string;
+  masterSceneImagePath?: string;
+  /** When true, use a fresh random seed so redo does not repeat the same image. */
+  regenerate?: boolean;
 }
 
 export interface EnsureCharacterPortraitsRequest {

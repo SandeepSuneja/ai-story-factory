@@ -45,6 +45,10 @@ export interface StoryCharacter {
   voice: string;
   /** Canonical portrait used as a visual reference for scene image generation */
   referenceImagePath?: string;
+  /** Locked visual tag captured when the portrait was generated (source of truth for scenes) */
+  visualIdentityTag?: string;
+  /** SDXL LoRA trained from the approved portrait (Tier C) */
+  loraPath?: string;
 }
 
 export type SeriesOrientation = 'landscape' | 'portrait';

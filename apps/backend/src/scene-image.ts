@@ -99,3 +99,42 @@ export function buildContextualTalkingImageHint(scene: SceneScript): string {
 
   return `${speakers.join(" and ")} in conversation, natural speaking expressions.`;
 }
+
+/** Short composition phrase for Tier A scene prompts (~5–8 words). */
+export function buildCompactSceneCompositionHint(
+  scene: SceneScript,
+  sceneCharacters: StoryCharacter[],
+): string {
+  const template = classifySceneImageTemplate(scene);
+  const speakers = getSpeakingCharacters(scene);
+  const names = sceneCharacters.map((character) => character.name);
+
+  switch (template) {
+    case "quiet_meditation":
+      return names.length >= 2
+        ? `${names[0]} left, ${names[1]} right, distinct faces, quiet meditation`
+        : "Both seated meditation, forest clearing";
+    case "reverence":
+      return names.length >= 2
+        ? `${names[0]} bowing left, ${names[1]} standing right, distinct faces`
+        : "Reverence bow, sacred banyan tree";
+    case "meditation_dialogue": {
+      if (names.length >= 2) {
+        // Prefer visual order: first listed character seated/left, second standing/right.
+        return `${names[0]} seated left under banyan, ${names[1]} standing right radiant, two distinct sages`;
+      }
+      const listener =
+        names.find((name) => !speakers.includes(name)) ?? "companion";
+      return `Seated sage dialogue, ${listener} listens`;
+    }
+    case "listener_focus":
+      return names.length >= 2
+        ? `${names[0]} left, ${names[1]} right, speaker and listener, distinct faces`
+        : "Two-shot, speaker and listener visible";
+    case "dialogue_two_shot":
+    default:
+      return names.length >= 2
+        ? `${names[0]} left, ${names[1]} right, two distinct people, different faces`
+        : "Cinematic forest clearing, two-shot";
+  }
+}

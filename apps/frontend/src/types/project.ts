@@ -19,6 +19,8 @@ export interface ProjectState {
   /** @deprecated Legacy single-character field */
   characterAppearance?: string | null;
   castReferenceImagePath?: string | null;
+  scene1ImageApproved?: boolean;
+  masterSceneImagePath?: string | null;
   promptedScenes: SceneScript[];
   imageScenes: SceneScript[];
   videoScenes: SceneScript[];
@@ -116,6 +118,8 @@ export function createEmptyProjectState(): ProjectState {
     scriptScenes: [],
     characters: [],
     castReferenceImagePath: null,
+    scene1ImageApproved: false,
+    masterSceneImagePath: null,
     promptedScenes: [],
     imageScenes: [],
     videoScenes: [],

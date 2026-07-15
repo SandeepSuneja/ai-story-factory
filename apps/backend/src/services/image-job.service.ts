@@ -30,6 +30,8 @@ export class ImageJobService {
     visualStyle?: SeriesVisualStyle,
     characters: StoryCharacter[] = [],
     castReferenceImagePath?: string,
+    masterSceneImagePath?: string,
+    regenerate = false,
   ): ImageJobRecord {
     const id = randomUUID();
     const record: ImageJobRecord = {
@@ -40,7 +42,15 @@ export class ImageJobService {
       updatedAt: Date.now(),
     };
     this.jobs.set(id, record);
-    void this.run(id, scene, visualStyle, characters, castReferenceImagePath);
+    void this.run(
+      id,
+      scene,
+      visualStyle,
+      characters,
+      castReferenceImagePath,
+      masterSceneImagePath,
+      regenerate,
+    );
     return record;
   }
 
@@ -58,6 +68,8 @@ export class ImageJobService {
     visualStyle?: SeriesVisualStyle,
     characters: StoryCharacter[] = [],
     castReferenceImagePath?: string,
+    masterSceneImagePath?: string,
+    regenerate = false,
   ): Promise<void> {
     const record = this.jobs.get(id);
     if (!record) {
@@ -73,6 +85,8 @@ export class ImageJobService {
         visualStyle,
         characters,
         castReferenceImagePath,
+        masterSceneImagePath,
+        regenerate,
       );
       record.status = "completed";
       record.scene = result;
