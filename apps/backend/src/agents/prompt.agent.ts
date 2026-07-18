@@ -13,11 +13,11 @@ import {
   getCharactersForScene,
   getSpeakingCharacters,
 } from "../characters";
-import { classifySceneImageTemplate } from "../scene-image";
+import { classifySceneImageTemplate, classifyEpisodeSceneSetup } from "../scene-image";
 import {
   buildTierASceneImagePrompt,
   ensureAllSceneCharactersInTierAPrompt,
-  TIER_A_IMAGE_PROMPT_MAX_WORDS,
+  TIER_A_FLUX_IMAGE_PROMPT_MAX_WORDS,
 } from "../scene-image-prompt";
 import {
   imagePromptLanguageRule,
@@ -40,9 +40,11 @@ export interface ScenePrompts {
 }
 
 const PROMPT_MAX_TOKENS = 1024;
+const PROMPT_MAX_TOKENS_PRO = 1536;
 const MAX_VIDEO_WORDS = 45;
-const MAX_PRO_VIDEO_WORDS = 100;
-const FLUX_CLIP_TARGET_WORDS = TIER_A_IMAGE_PROMPT_MAX_WORDS;
+const MAX_PRO_VIDEO_WORDS = 120;
+const MAX_PRO_IMAGE_WORDS = 180;
+const FLUX_CLIP_TARGET_WORDS = TIER_A_FLUX_IMAGE_PROMPT_MAX_WORDS;
 
 function imagePromptWordBudget(_characterCount: number): number {
   return FLUX_CLIP_TARGET_WORDS;
@@ -144,6 +146,41 @@ function sanitizeProfessionalVideoPrompt(text: string, duration: number): string
   return prompt;
 }
 
+function sanitizeProfessionalImagePrompt(
+  text: string,
+  scene: SceneScript,
+  sceneCharacters: StoryCharacter[],
+  visualStyle?: SeriesVisualStyle,
+): string {
+  let prompt = text
+    .replace(/\*\*[^*]+:\*\*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!prompt) {
+    return buildFallbackProfessionalImagePrompt(
+      scene,
+      sceneCharacters,
+      visualStyle,
+    );
+  }
+
+  for (const character of sceneCharacters) {
+    if (!new RegExp(`\\b${escapeRegExp(character.name)}\\b`, "i").test(prompt)) {
+      prompt = `${prompt} ${character.name}: ${character.appearance}`.replace(
+        /\s+/g,
+        " ",
+      );
+    }
+  }
+
+  return clampWords(prompt, MAX_PRO_IMAGE_WORDS);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function ensureAllSceneCharactersInImagePrompt(
   prompt: string,
   sceneCharacters: StoryCharacter[],
@@ -180,23 +217,47 @@ function parsePromptPair(
   }
 
   const value = raw as Record<string, unknown>;
+
+  if (videoMode === "professional") {
+    const imagePrompt = sanitizeProfessionalImagePrompt(
+      String(value.imagePrompt ?? ""),
+      scene,
+      sceneCharacters,
+      visualStyle,
+    );
+    const rawVideoPrompt = sanitizeProfessionalVideoPrompt(
+      String(value.videoPrompt ?? ""),
+      scene.duration,
+    );
+    const videoPrompt = enhanceVideoPromptForTalking(
+      rawVideoPrompt,
+      scene,
+      MAX_PRO_VIDEO_WORDS,
+    );
+
+    if (!imagePrompt || !videoPrompt) {
+      throw new Error(
+        "Prompt model output is missing imagePrompt or videoPrompt.",
+      );
+    }
+
+    return { imagePrompt, videoPrompt };
+  }
+
   const imagePrompt = sanitizeImagePrompt(
     String(value.imagePrompt ?? ""),
     scene,
     sceneCharacters,
     visualStyle,
   );
-  const rawVideoPrompt =
-    videoMode === "professional"
-      ? sanitizeProfessionalVideoPrompt(
-          String(value.videoPrompt ?? ""),
-          scene.duration,
-        )
-      : sanitizeVideoPrompt(String(value.videoPrompt ?? ""), scene.duration);
+  const rawVideoPrompt = sanitizeVideoPrompt(
+    String(value.videoPrompt ?? ""),
+    scene.duration,
+  );
   const videoPrompt = enhanceVideoPromptForTalking(
     rawVideoPrompt,
     scene,
-    videoMode === "professional" ? MAX_PRO_VIDEO_WORDS : MAX_VIDEO_WORDS,
+    MAX_VIDEO_WORDS,
   );
 
   if (!imagePrompt || !videoPrompt) {
@@ -216,6 +277,16 @@ function formatSceneDialogue(scene: SceneScript): string {
     .join("\n");
 }
 
+function recommendedProfessionalVideoPlatform(scene: SceneScript): string {
+  if (scene.duration >= 8) {
+    return "Google Veo (longer cinematic shot)";
+  }
+  if (getSpeakingCharacters(scene).length > 0) {
+    return "Kling AI I2V (dialogue performance)";
+  }
+  return "Kling AI or Runway Gen I2V";
+}
+
 function buildPromptRequest(
   scene: SceneScript,
   characters: StoryCharacter[],
@@ -230,17 +301,19 @@ function buildPromptRequest(
   const seriesStyleBlock = formatVisualStyleForPrompt(resolvedStyle);
   const animationSuffix = imagePromptAnimationSuffix(resolvedStyle.animationStyle);
 
-  const videoPromptBlock =
-    videoMode === "professional"
-      ? `VIDEO PROMPT (Kling AI / Google Veo / Runway — image-to-video):
-- Maximum ${MAX_PRO_VIDEO_WORDS} words (2–4 cinematic sentences)
-- Write for external I2V tools: user will upload the generated scene image plus this prompt
-- Rich cinematic language: camera movement, subject motion, lighting, mood, atmosphere, environment
-- One cohesive ${scene.duration}-second shot with smooth, continuous motion
-- Reference motion continuing from the still image; do not repeat full character appearance or static layout
-- 16:9 cinematic framing; photorealistic or stylized to match the scene
-- Suitable for Kling AI, Google Veo, and Runway Gen-style image-to-video workflows`
-      : `VIDEO PROMPT (Wan2.1 I2V — motion from the still above):
+  if (videoMode === "professional") {
+    return buildProfessionalPromptRequest(
+      scene,
+      sceneCharacters,
+      characterBlock,
+      seriesStyleBlock,
+      animationSuffix,
+      language,
+      sourceContext,
+    );
+  }
+
+  const videoPromptBlock = `VIDEO PROMPT (Wan2.1 I2V — motion from the still above):
 - Maximum ${MAX_VIDEO_WORDS} words (about 1–2 short sentences)
 - Describe ONLY motion that can continue from a single still image
 - Pick ONE primary motion: either one camera move OR one subtle subject motion — not both complex moves
@@ -262,6 +335,7 @@ Talking characters in this scene: ${speakingNames.join(", ")}.
   const characterCount = sceneCharacters.length;
   const imageWordBudget = imagePromptWordBudget(characterCount);
   const sceneTemplate = classifySceneImageTemplate(scene);
+  const sceneSetup = classifyEpisodeSceneSetup(scene);
 
   return appendSourceMaterial(
     `Create two prompts for scene ${scene.sceneNumber} of a short film pipeline.
@@ -269,7 +343,7 @@ Talking characters in this scene: ${speakingNames.join(", ")}.
 Return ONLY valid JSON in this exact shape:
 {
   "imagePrompt": "static keyframe prompt for FLUX image generation",
-  "videoPrompt": "${videoMode === "professional" ? "external I2V prompt for Kling/Veo/Runway" : "motion-only prompt for Wan2.1 image-to-video"}"
+  "videoPrompt": "motion-only prompt for Wan2.1 image-to-video"
 }
 
 ${imagePromptLanguageRule(language)}
@@ -278,7 +352,10 @@ ${videoPromptLanguageRule(language, videoMode)}
 IMAGE PROMPT (FLUX Tier A — ~${imageWordBudget} words, CLIP 77-token hard limit):
 - Maximum ${imageWordBudget} words — never exceed this
 - Scene template for this shot: ${sceneTemplate}
-- Required format: "[scene action from visual description]. Name: visual tag; Name: visual tag. All ${characterCount} visible: ${sceneCharacters.map((c) => c.name).join(", ")}. [short composition]. ${animationSuffix}"
+- Blocking setup for this shot: ${sceneSetup}
+- Required: single unified forest background for both characters — no split panels, no flat color backdrop behind one character only
+- Blocking: Valmiki seated left on stone under banyan; Narada standing right with veena staff unless setup is narada_hero or valmiki_reaction
+- Required format: "[scene action from visual description]. [unified forest anchor]. Name: visual tag; Name: visual tag. All ${characterCount} visible: ${sceneCharacters.map((c) => c.name).join(", ")}. [short composition]. ${animationSuffix}"
 - Use each character's visual trait tag from the character list below (locked tags are authoritative)
 - Always follow the scene visual description — do not invent new locations or poses
 - Do NOT include guardrails, resolution, aspect ratio, camera movement, or talking/lip hints (added server-side)
@@ -289,6 +366,71 @@ ${talkingRules}
 ${videoPromptBlock}
 
 ${seriesStyleBlock ? `Series visual consistency (apply to imagePrompt composition):\n${seriesStyleBlock}\n` : ""}Characters in this scene (use in imagePrompt only):
+${characterBlock}
+
+Scene dialogue:
+${formatSceneDialogue(scene)}
+
+Scene visual (single frame to illustrate):
+${scene.visualDescription}
+
+Scene duration: ${scene.duration} seconds`,
+    sourceContext,
+  );
+}
+
+function buildProfessionalPromptRequest(
+  scene: SceneScript,
+  sceneCharacters: StoryCharacter[],
+  characterBlock: string,
+  seriesStyleBlock: string,
+  animationSuffix: string,
+  language: StoryLanguage,
+  sourceContext?: SourceFidelityContext,
+): string {
+  const speakingNames = getSpeakingCharacters(scene);
+  const talkingRules =
+    speakingNames.length > 0
+      ? `
+Talking characters in this scene: ${speakingNames.join(", ")}.
+- videoPrompt: include natural lip sync, facial performance, and conversational gestures`
+      : "";
+  const sourceRules = sourceContext ? `\n${promptRulesWithSource()}` : "";
+  const platform = recommendedProfessionalVideoPlatform(scene);
+
+  return appendSourceMaterial(
+    `Create two prompts for scene ${scene.sceneNumber} for professional external tools (Kling AI, Google Veo, Runway, Midjourney).
+
+Return ONLY valid JSON in this exact shape:
+{
+  "imagePrompt": "still keyframe prompt for Midjourney / Kling image / similar",
+  "videoPrompt": "image-to-video prompt for Kling AI / Google Veo / Runway"
+}
+
+${imagePromptLanguageRule(language)}
+${videoPromptLanguageRule(language, "professional")}
+
+IMAGE PROMPT (Midjourney / Kling Image / Leonardo — still keyframe):
+- Maximum ${MAX_PRO_IMAGE_WORDS} words
+- Rich cinematic still suitable as the first frame for image-to-video
+- Name every visible character and include stable appearance details from the character list
+- Describe setting, lighting, composition, mood, and ${animationSuffix}
+- 16:9 cinematic framing unless visual style says otherwise
+- No on-screen text, subtitles, watermarks, or split panels
+- Do not invent new locations or outfits beyond the scene visual and character list
+
+VIDEO PROMPT (Kling AI / Google Veo / Runway — image-to-video):
+- Maximum ${MAX_PRO_VIDEO_WORDS} words (2–4 cinematic sentences)
+- Written for external I2V: user uploads the generated scene still plus this prompt
+- Camera movement, subject motion, lighting shifts, atmosphere, environment
+- One cohesive ${scene.duration}-second shot with smooth continuous motion
+- Reference motion continuing from the still; do not repeat full static appearance
+- Suitable for Kling AI, Google Veo, and Runway Gen-style workflows
+- Recommended platform for this scene: ${platform}
+${sourceRules}
+${talkingRules}
+
+${seriesStyleBlock ? `Series visual consistency:\n${seriesStyleBlock}\n` : ""}Characters in this scene:
 ${characterBlock}
 
 Scene dialogue:
@@ -364,6 +506,34 @@ function buildFallbackImagePrompt(
   return buildFluxOptimizedImagePrompt(scene, sceneCharacters, visualStyle);
 }
 
+function buildFallbackProfessionalImagePrompt(
+  scene: SceneScript,
+  sceneCharacters: StoryCharacter[],
+  visualStyle?: SeriesVisualStyle,
+): string {
+  const resolvedStyle = mergeVisualStyle(visualStyle);
+  const styleHint = imagePromptAnimationSuffix(resolvedStyle.animationStyle);
+  const characterBits = sceneCharacters
+    .map((character) => `${character.name}: ${character.appearance}`)
+    .join(". ");
+  return clampWords(
+    `Cinematic still frame. ${scene.visualDescription}. ${characterBits}. ${styleHint}. Dramatic lighting, detailed environment, 16:9 composition.`,
+    MAX_PRO_IMAGE_WORDS,
+  );
+}
+
+export function buildProfessionalPortraitPrompt(
+  character: StoryCharacter,
+  visualStyle?: SeriesVisualStyle,
+): string {
+  const resolvedStyle = mergeVisualStyle(visualStyle);
+  const styleHint = imagePromptAnimationSuffix(resolvedStyle.animationStyle);
+  return clampWords(
+    `Character reference portrait of ${character.name}, ${character.role}. ${character.appearance}. ${styleHint}. Full-body or three-quarter view, neutral pose, clean background, consistent identity sheet, highly detailed face and costume, 16:9.`,
+    MAX_PRO_IMAGE_WORDS,
+  );
+}
+
 @Injectable()
 export class PromptAgent {
   constructor(private readonly ai: QwenService) {}
@@ -385,11 +555,13 @@ Your previous answer was invalid JSON. Reply again with ONLY the JSON object.`,
     ];
 
     let lastError: Error | null = null;
+    const maxTokens =
+      videoMode === "professional" ? PROMPT_MAX_TOKENS_PRO : PROMPT_MAX_TOKENS;
 
     for (const prompt of attempts) {
       try {
         const text = await this.ai.generate(prompt, {
-          maxTokens: PROMPT_MAX_TOKENS,
+          maxTokens,
         });
         const parsed = parsePromptPair(
           JSON.parse(extractJsonObject(text)),
@@ -408,6 +580,17 @@ Your previous answer was invalid JSON. Reply again with ONLY the JSON object.`,
     }
 
     if (lastError) {
+      if (videoMode === "professional") {
+        return {
+          imagePrompt: buildFallbackProfessionalImagePrompt(
+            scene,
+            sceneCharacters,
+            visualStyle,
+          ),
+          videoPrompt: buildFallbackVideoPrompt(scene, videoMode, visualStyle),
+        };
+      }
+
       return {
         imagePrompt: buildFallbackImagePrompt(scene, sceneCharacters, visualStyle),
         videoPrompt: buildFallbackVideoPrompt(scene, videoMode, visualStyle),

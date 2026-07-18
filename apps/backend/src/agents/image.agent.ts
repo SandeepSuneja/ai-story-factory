@@ -20,7 +20,11 @@ import {
 
   buildTierBKontextPrompt,
 
+  ensureAllSceneCharactersInTierAPrompt,
+
   shouldUseKontextForScene,
+
+  TIER_A_FLUX_IMAGE_PROMPT_MAX_WORDS,
 
   TIER_A_SDXL_IMAGE_PROMPT_MAX_WORDS,
 
@@ -66,7 +70,23 @@ export class ImageAgent {
 
   ) {}
 
-
+  private buildFluxSceneImagePrompt(
+    scene: SceneScript,
+    sceneCharacters: StoryCharacter[],
+    visualStyle?: SeriesVisualStyle,
+  ): string {
+    const raw = buildTierASceneImagePrompt(
+      scene,
+      sceneCharacters,
+      visualStyle,
+      TIER_A_FLUX_IMAGE_PROMPT_MAX_WORDS,
+    );
+    return ensureAllSceneCharactersInTierAPrompt(
+      raw,
+      sceneCharacters,
+      TIER_A_FLUX_IMAGE_PROMPT_MAX_WORDS,
+    );
+  }
 
   async execute(
 
@@ -398,11 +418,11 @@ export class ImageAgent {
 
       scene.sceneNumber === 1
 
-        ? buildTierASceneImagePrompt(scene, sceneCharacters, visualStyle)
+        ? this.buildFluxSceneImagePrompt(scene, sceneCharacters, visualStyle)
 
         : scene.imagePrompt?.trim() ||
 
-          buildTierASceneImagePrompt(scene, sceneCharacters, visualStyle) ||
+          this.buildFluxSceneImagePrompt(scene, sceneCharacters, visualStyle) ||
 
           scene.videoPrompt?.trim();
 

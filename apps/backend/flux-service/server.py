@@ -29,6 +29,7 @@ IP_ADAPTER_TRUE_CFG_SCALE = float(os.environ.get("FLUX_IP_ADAPTER_TRUE_CFG", "4.
 IMAGE_WIDTH = int(os.environ.get("FLUX_IMAGE_WIDTH", "832"))
 IMAGE_HEIGHT = int(os.environ.get("FLUX_IMAGE_HEIGHT", "480"))
 FLUX_CLIP_MAX_TOKENS = int(os.environ.get("FLUX_CLIP_MAX_TOKENS", "77"))
+FLUX_CLIP_MIN_PROMPT_TOKENS = int(os.environ.get("FLUX_CLIP_MIN_PROMPT_TOKENS", "24"))
 FLUX_PROMPT_SUFFIX = os.environ.get("FLUX_PROMPT_SUFFIX", "").strip()
 FLUX_SCENE_GUARD = os.environ.get(
     "FLUX_SCENE_GUARD",
@@ -263,6 +264,16 @@ def extract_character_names(text: str) -> list[str]:
         seen.add(name)
         names.append(name)
 
+    for match in re.finditer(
+        r"\b([A-Z][A-Za-z'-]{2,30})\b(?=\s+(?:seated|stands|standing|speaks|speaking|listens|listening|bows|bowing|visible|meditat|opens|folded))",
+        text,
+    ):
+        name = match.group(1)
+        if name in NAME_STOPWORDS or name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+
     return names
 
 
@@ -307,6 +318,36 @@ def append_scene_guard(prompt: str) -> str:
     return f"{prompt}, {FLUX_SCENE_GUARD}".strip(" ,")
 
 
+def scene_guard_token_overhead(tokenizer, prompt: str) -> int:
+    if not FLUX_SCENE_GUARD:
+        return 0
+    guard = FLUX_SCENE_GUARD.lower()
+    if guard in prompt.lower():
+        return 0
+    return clip_token_count(tokenizer, f"x, {FLUX_SCENE_GUARD}")
+
+
+def fit_prompt_with_scene_guard(
+    tokenizer,
+    prompt: str,
+    *,
+    max_tokens: int = FLUX_CLIP_MAX_TOKENS,
+) -> tuple[str, int]:
+    guarded = append_scene_guard(prompt)
+    token_count = clip_token_count(tokenizer, guarded)
+    if token_count <= max_tokens:
+        return guarded, token_count
+
+    reserve = scene_guard_token_overhead(tokenizer, prompt)
+    trimmed = truncate_to_clip_tokens(
+        tokenizer,
+        prompt,
+        max(24, max_tokens - reserve),
+    )
+    guarded = append_scene_guard(trimmed)
+    return guarded, clip_token_count(tokenizer, guarded)
+
+
 def prepare_flux_prompt(prompt: str, pipeline: FluxPipeline) -> str:
     """Fit prompt into CLIP's 77-token limit, preserving character appearance tags."""
     text = strip_flux_boilerplate(prompt) or prompt.strip()
@@ -315,16 +356,27 @@ def prepare_flux_prompt(prompt: str, pipeline: FluxPipeline) -> str:
 
     suffix = FLUX_PROMPT_SUFFIX
     suffix_tokens = clip_token_count(tokenizer, f"x, {suffix}") if suffix else 0
-    text_budget = max(24, FLUX_CLIP_MAX_TOKENS - suffix_tokens)
+    guard_tokens = scene_guard_token_overhead(tokenizer, text)
+    text_budget = max(24, FLUX_CLIP_MAX_TOKENS - suffix_tokens - guard_tokens)
 
     if original_tokens <= text_budget:
         result = f"{text}, {suffix}" if suffix else text
-        if clip_token_count(tokenizer, result) <= FLUX_CLIP_MAX_TOKENS:
-            return append_scene_guard(result)
-        result = truncate_to_clip_tokens(tokenizer, text, text_budget)
-        if suffix:
-            result = f"{result}, {suffix}"
-        return append_scene_guard(result)
+        if clip_token_count(tokenizer, result) > text_budget:
+            result = truncate_to_clip_tokens(tokenizer, text, text_budget)
+            if suffix:
+                result = f"{result}, {suffix}"
+        final, final_tokens = fit_prompt_with_scene_guard(tokenizer, result)
+        if final_tokens != original_tokens:
+            preview = final.replace("\n", " ").strip()
+            if len(preview) > 240:
+                preview = preview[:237] + "..."
+            logger.info(
+                "CLIP prompt compressed from %s to %s tokens: %s",
+                original_tokens,
+                final_tokens,
+                preview,
+            )
+        return final
 
     names = extract_character_names(text)
     anchor = build_character_anchor(names)
@@ -336,23 +388,42 @@ def prepare_flux_prompt(prompt: str, pipeline: FluxPipeline) -> str:
         candidates.append(f"{anchor} {appearance_tags}".strip())
     if appearance_tags:
         candidates.append(appearance_tags)
-    if anchor and anchor.lower() not in lead.lower():
-        candidates.append(f"{lead} {anchor}".strip())
-    if appearance_tags:
+    if appearance_tags and lead:
         candidates.append(f"{lead} {appearance_tags}".strip())
-    candidates.append(lead)
+    if anchor and lead and anchor.lower() not in lead.lower():
+        candidates.append(f"{lead} {anchor}".strip())
     if anchor:
         candidates.append(anchor)
     candidates.append(text)
+    if lead:
+        candidates.append(lead)
 
-    compact = lead
+    compact = truncate_to_clip_tokens(tokenizer, text, text_budget)
     for candidate in candidates:
         count = clip_token_count(tokenizer, candidate)
         if count <= text_budget and count >= clip_token_count(tokenizer, compact):
             compact = candidate
+
     if clip_token_count(tokenizer, compact) > text_budget:
         if appearance_tags:
             compact = truncate_to_clip_tokens(tokenizer, appearance_tags, text_budget)
+        else:
+            compact = truncate_to_clip_tokens(tokenizer, text, text_budget)
+
+    if (
+        clip_token_count(tokenizer, compact) < FLUX_CLIP_MIN_PROMPT_TOKENS
+        and original_tokens > text_budget
+    ):
+        if appearance_tags:
+            merged = truncate_to_clip_tokens(
+                tokenizer,
+                f"{lead} {appearance_tags}".strip(),
+                text_budget,
+            )
+            if clip_token_count(tokenizer, merged) >= FLUX_CLIP_MIN_PROMPT_TOKENS:
+                compact = merged
+            else:
+                compact = truncate_to_clip_tokens(tokenizer, text, text_budget)
         else:
             compact = truncate_to_clip_tokens(tokenizer, text, text_budget)
 
@@ -363,7 +434,7 @@ def prepare_flux_prompt(prompt: str, pipeline: FluxPipeline) -> str:
         elif anchor:
             compact = truncate_to_clip_tokens(
                 tokenizer,
-                f"{anchor} {appearance_tags or lead}".strip(),
+                f"{anchor} {appearance_tags or lead or text}".strip(),
                 text_budget,
             )
 
@@ -374,19 +445,19 @@ def prepare_flux_prompt(prompt: str, pipeline: FluxPipeline) -> str:
     if clip_token_count(tokenizer, result) > FLUX_CLIP_MAX_TOKENS:
         result = truncate_to_clip_tokens(tokenizer, result, FLUX_CLIP_MAX_TOKENS)
 
-    final_tokens = clip_token_count(tokenizer, result)
-    if final_tokens > FLUX_CLIP_MAX_TOKENS:
-        result = truncate_to_clip_tokens(tokenizer, result, FLUX_CLIP_MAX_TOKENS)
-        final_tokens = clip_token_count(tokenizer, result)
-
-    if final_tokens < original_tokens:
+    final, final_tokens = fit_prompt_with_scene_guard(tokenizer, result)
+    if final_tokens != original_tokens:
+        preview = final.replace("\n", " ").strip()
+        if len(preview) > 240:
+            preview = preview[:237] + "..."
         logger.info(
-            "CLIP prompt compressed from %s to %s tokens",
+            "CLIP prompt compressed from %s to %s tokens: %s",
             original_tokens,
             final_tokens,
+            preview,
         )
 
-    return append_scene_guard(result)
+    return final
 
 
 def resolve_reference_images(reference_image_paths: list[str]) -> list[Image.Image]:

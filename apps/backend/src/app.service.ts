@@ -8,7 +8,7 @@ import { IdeaAgent } from './agents/idea.agent';
 
 import { ImageAgent } from './agents/image.agent';
 
-import { PromptAgent } from './agents/prompt.agent';
+import { buildProfessionalPortraitPrompt, PromptAgent } from './agents/prompt.agent';
 
 import { ScriptAgent } from './agents/script.agent';
 
@@ -208,6 +208,8 @@ export class AppService {
 
     sourceFidelityMode?: boolean,
 
+    videoMode: VideoGenerationMode = 'local',
+
   ): Promise<GenerateScriptResponseDto> {
 
     const language = normalizeStoryLanguage(storyLanguage);
@@ -218,7 +220,14 @@ export class AppService {
       sourceFidelityMode,
     );
 
-    return { script: await this.scriptAgent.execute(story, language, sourceContext) };
+    return {
+      script: await this.scriptAgent.execute(
+        story,
+        language,
+        sourceContext,
+        videoMode,
+      ),
+    };
 
   }
 
@@ -241,6 +250,8 @@ export class AppService {
     knowledgeSourceId?: string | null,
 
     sourceFidelityMode?: boolean,
+
+    videoMode: VideoGenerationMode = 'local',
 
   ): Promise<GenerateCharacterProfileResponseDto> {
 
@@ -270,7 +281,14 @@ export class AppService {
     let characters = result.characters;
     let castReferenceImagePath: string | undefined;
 
-    if (characters.length > 0) {
+    if (characters.length > 0 && videoMode === 'professional') {
+      characters = characters.map((character) => ({
+        ...character,
+        portraitPrompt:
+          character.portraitPrompt?.trim() ||
+          buildProfessionalPortraitPrompt(character, visualStyle),
+      }));
+    } else if (characters.length > 0) {
       characters = await this.characterPortraitService.ensurePortraits(
         characters,
         visualStyle,

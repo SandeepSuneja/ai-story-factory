@@ -71,11 +71,22 @@ function normalizeCharacterRecord(
   }
 
   const referenceImagePath = String(value.referenceImagePath ?? "").trim() || undefined;
+  const portraitPrompt = String(value.portraitPrompt ?? "").trim() || undefined;
   const visualIdentityTag =
     String(value.visualIdentityTag ?? "").trim() || undefined;
   const loraPath = String(value.loraPath ?? "").trim() || undefined;
 
-  return { id, name, role, appearance, voice, referenceImagePath, visualIdentityTag, loraPath };
+  return {
+    id,
+    name,
+    role,
+    appearance,
+    voice,
+    referenceImagePath,
+    portraitPrompt,
+    visualIdentityTag,
+    loraPath,
+  };
 }
 
 export function normalizeCharacters(
@@ -680,11 +691,14 @@ export function buildCharacterPortraitPrompt(
   character: StoryCharacter,
   animationSuffix: string,
 ): string {
-  const traits = buildSceneCharacterIdentityTag(character.appearance, 12);
+  const traits =
+    character.visualIdentityTag?.trim() ||
+    buildSceneCharacterIdentityTag(character.appearance, 12);
   return [
     `${character.name}, ${character.role}`,
     traits,
-    "character portrait, front facing, plain background",
+    "character portrait, 3/4 view, plain cream background",
+    "soft 2D Indian mythological illustration, same line weight as series character bible",
     animationSuffix,
   ]
     .filter(Boolean)
@@ -871,6 +885,7 @@ export function mergeCharacterLibraries(
       byName.set(key, {
         ...character,
         referenceImagePath: previous.referenceImagePath,
+        portraitPrompt: character.portraitPrompt ?? previous.portraitPrompt,
         visualIdentityTag:
           character.visualIdentityTag ?? previous.visualIdentityTag,
         loraPath: character.loraPath ?? previous.loraPath,
@@ -880,6 +895,7 @@ export function mergeCharacterLibraries(
     if (previous?.visualIdentityTag && !character.visualIdentityTag) {
       byName.set(key, {
         ...character,
+        portraitPrompt: character.portraitPrompt ?? previous.portraitPrompt,
         visualIdentityTag: previous.visualIdentityTag,
         loraPath: character.loraPath ?? previous.loraPath,
       });
@@ -888,11 +904,15 @@ export function mergeCharacterLibraries(
     if (previous?.loraPath && !character.loraPath) {
       byName.set(key, {
         ...character,
+        portraitPrompt: character.portraitPrompt ?? previous.portraitPrompt,
         loraPath: previous.loraPath,
       });
       continue;
     }
-    byName.set(key, character);
+    byName.set(key, {
+      ...character,
+      portraitPrompt: character.portraitPrompt ?? previous?.portraitPrompt,
+    });
   }
 
   return [...byName.values()];

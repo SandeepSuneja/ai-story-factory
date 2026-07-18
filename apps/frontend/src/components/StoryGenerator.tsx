@@ -10,6 +10,8 @@ import {
   generateAudio,
   assembleVideo,
   upscaleScene,
+  uploadCharacterImage,
+  uploadSceneImage,
   uploadSceneVideo,
 } from '../api/generate';
 import {
@@ -84,7 +86,7 @@ const STEPS: { id: PipelineStep; label: string }[] = [
   { id: 'script', label: 'Script' },
   { id: 'character', label: 'Character' },
   { id: 'visual', label: 'Visual settings' },
-  { id: 'prompts', label: 'Video prompts' },
+  { id: 'prompts', label: 'Prompts' },
   { id: 'images', label: 'Images' },
   { id: 'videos', label: 'Scene videos (1080p)' },
   { id: 'audio', label: 'Narration audio' },
@@ -1000,6 +1002,7 @@ export function StoryGenerator() {
           const response = await generateScript({
             story,
             storyLanguage,
+            videoMode: videoGenerationMode,
             ...getSourceFidelityRequest(),
           });
           setScriptScenes(response.script);
@@ -1016,6 +1019,7 @@ export function StoryGenerator() {
             storyLanguage,
             seriesId,
             visualStyle,
+            videoMode: videoGenerationMode,
             ...getSourceFidelityRequest(),
           });
           setCharacters(response.characters);
@@ -1052,6 +1056,13 @@ export function StoryGenerator() {
           if (promptedScenes.length === 0) {
             throw new Error('Generate video prompts first.');
           }
+
+          if (videoGenerationMode === 'professional') {
+            setScene1ImageApproved(true);
+            revealStep(7);
+            break;
+          }
+
           const startIndex = options.resume ? imageScenes.length : 0;
           const scenesWithImages = options.resume ? [...imageScenes] : [];
 
@@ -1356,6 +1367,7 @@ export function StoryGenerator() {
 
     if (
       step === 'images' &&
+      videoGenerationMode !== 'professional' &&
       shouldReviewScene1Gate({
         promptedScenes,
         imageScenes,
@@ -1371,6 +1383,25 @@ export function StoryGenerator() {
       setReviewStep(null);
       await runStep('images', { resume: true });
       return;
+    }
+
+    if (step === 'images' && videoGenerationMode === 'professional') {
+      const missingPortraits = characters.filter(
+        (character) => !character.referenceImagePath?.trim(),
+      );
+      if (missingPortraits.length > 0) {
+        setError(
+          `Upload professional portraits for: ${missingPortraits
+            .map((character) => character.name)
+            .join(', ')}.`,
+        );
+        return;
+      }
+      const orderedPrompts = sortScenesByNumber(promptedScenes);
+      if (imageScenes.length < orderedPrompts.length) {
+        setError('Upload all scene images from your professional platform before continuing.');
+        return;
+      }
     }
 
     if (step === 'videos') {
@@ -1507,6 +1538,12 @@ export function StoryGenerator() {
       return;
     }
 
+    if (videoGenerationMode === 'professional') {
+      setImageScenes((current) => current.filter((_, i) => i < index));
+      setReviewStep('images');
+      return;
+    }
+
     setError(null);
     setRegeneratingSceneIndex(index);
 
@@ -1537,6 +1574,61 @@ export function StoryGenerator() {
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to regenerate image.',
+      );
+    } finally {
+      setRegeneratingSceneIndex(null);
+    }
+  }
+
+  async function uploadProfessionalCharacterPortrait(
+    characterId: string,
+    file: File,
+  ) {
+    setError(null);
+    setRegeneratingSceneIndex(-1);
+
+    try {
+      const uploaded = await uploadCharacterImage(characterId, file);
+      setCharacters((current) =>
+        current.map((character) =>
+          character.id === characterId
+            ? { ...character, referenceImagePath: uploaded.imagePath }
+            : character,
+        ),
+      );
+      setReviewStep('images');
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to upload character portrait.',
+      );
+    } finally {
+      setRegeneratingSceneIndex(null);
+    }
+  }
+
+  async function uploadProfessionalSceneImage(index: number, file: File) {
+    const scene = sortScenesByNumber(promptedScenes)[index];
+    if (!scene) {
+      return;
+    }
+
+    setError(null);
+    setRegeneratingSceneIndex(index);
+
+    try {
+      const uploaded = await uploadSceneImage(scene.sceneNumber, file);
+      const withImage = { ...scene, imagePath: uploaded.imagePath };
+      setImageScenes((current) => {
+        const next = [...current];
+        next[index] = withImage;
+        return next.slice(0, index + 1);
+      });
+      setReviewStep('images');
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to upload scene image.',
       );
     } finally {
       setRegeneratingSceneIndex(null);
@@ -1644,6 +1736,10 @@ export function StoryGenerator() {
     }
   }
 
+  const orderedImageScenes = sortScenesByNumber(imageScenes);
+  const orderedPromptScenes = sortScenesByNumber(promptedScenes);
+  const isProfessionalMode = videoGenerationMode === 'professional';
+
   const effectiveReviewStep = resolveEffectiveReviewStep({
     reviewStep,
     approvedThroughIndex,
@@ -1655,6 +1751,7 @@ export function StoryGenerator() {
   });
 
   const isScene1GateActive =
+    !isProfessionalMode &&
     effectiveReviewStep === 'images' &&
     shouldReviewScene1Gate({
       promptedScenes,
@@ -1662,8 +1759,6 @@ export function StoryGenerator() {
       scene1ImageApproved,
     });
 
-  const orderedImageScenes = sortScenesByNumber(imageScenes);
-  const isProfessionalMode = videoGenerationMode === 'professional';
   const hasMoreVideosToGenerate =
     effectiveReviewStep === 'videos' &&
     !isProfessionalMode &&
@@ -1671,6 +1766,17 @@ export function StoryGenerator() {
   const nextProfessionalUploadIndex = videoScenes.length;
   const pendingProfessionalUploadScene =
     orderedImageScenes[nextProfessionalUploadIndex];
+  const pendingProfessionalPortrait =
+    isProfessionalMode && effectiveReviewStep === 'images'
+      ? characters.find((character) => !character.referenceImagePath?.trim())
+      : undefined;
+  const nextProfessionalImageIndex = imageScenes.length;
+  const pendingProfessionalImageScene =
+    !pendingProfessionalPortrait &&
+    isProfessionalMode &&
+    effectiveReviewStep === 'images'
+      ? orderedPromptScenes[nextProfessionalImageIndex]
+      : undefined;
 
   const canCreateVideoVariant = hasReusableStoryContent({
     idea,
@@ -1759,7 +1865,7 @@ export function StoryGenerator() {
                 Video:{' '}
                 <strong>
                   {videoGenerationMode === 'professional'
-                    ? 'Professional upload'
+                    ? 'Professional platforms'
                     : 'Local generation'}
                 </strong>
                 {' · '}
@@ -1918,7 +2024,9 @@ export function StoryGenerator() {
                   />
                   <span className="video-mode-option-title">Professional</span>
                   <span className="video-mode-option-copy">
-                    Use Kling, Veo, or Runway externally, then upload each scene MP4.
+                    Full-story scripts with no scene cap. Prompts for Kling, Veo,
+                    and Midjourney — then upload character images, scene stills,
+                    and videos.
                   </span>
                 </label>
               </div>
@@ -1977,6 +2085,14 @@ export function StoryGenerator() {
                 : hasMoreVideosToGenerate
                 ? `Scene ${countUpscaledScenes(videoScenes)} of ${orderedImageScenes.length} is ready at 1080p. Review below, regenerate if needed, then continue.`
                 : isProfessionalMode &&
+                    effectiveReviewStep === 'images' &&
+                    pendingProfessionalPortrait
+                  ? `Create ${pendingProfessionalPortrait.name}'s portrait on your professional platform using the portrait prompt, then upload it.`
+                : isProfessionalMode &&
+                    effectiveReviewStep === 'images' &&
+                    pendingProfessionalImageScene
+                  ? `Create scene ${pendingProfessionalImageScene.sceneNumber} still on your professional platform, then upload it (${imageScenes.length + 1} of ${orderedPromptScenes.length}).`
+                : isProfessionalMode &&
                     effectiveReviewStep === 'videos' &&
                     pendingProfessionalUploadScene
                   ? `Upload scene ${pendingProfessionalUploadScene.sceneNumber} of ${orderedImageScenes.length}. It will be upscaled to 1080p automatically.`
@@ -1987,6 +2103,10 @@ export function StoryGenerator() {
             regenerateLabel={
               effectiveReviewStep === 'visual'
                 ? undefined
+                : isProfessionalMode &&
+                    (effectiveReviewStep === 'images' ||
+                      effectiveReviewStep === 'videos')
+                  ? undefined
                 : hasMoreVideosToGenerate
                   ? 'Regenerate scene'
                   : isScene1GateActive
@@ -2004,11 +2124,29 @@ export function StoryGenerator() {
                 ? `Generate scene ${countUpscaledScenes(videoScenes) + 1} of ${orderedImageScenes.length}`
                 : effectiveReviewStep === 'videos'
                   ? 'Approve videos & continue'
+                  : effectiveReviewStep === 'images' && isProfessionalMode
+                    ? pendingProfessionalPortrait || pendingProfessionalImageScene
+                      ? 'Finish uploads to continue'
+                      : 'Approve images & continue to videos'
                   : effectiveReviewStep === 'images'
                     ? 'Approve images & continue'
                     : undefined
             }
-            hideRegenerate={effectiveReviewStep === 'visual'}
+            hideRegenerate={
+              effectiveReviewStep === 'visual' ||
+              (isProfessionalMode &&
+                (effectiveReviewStep === 'images' ||
+                  effectiveReviewStep === 'videos'))
+            }
+            approveDisabled={
+              isProfessionalMode &&
+              ((effectiveReviewStep === 'images' &&
+                Boolean(
+                  pendingProfessionalPortrait || pendingProfessionalImageScene,
+                )) ||
+                (effectiveReviewStep === 'videos' &&
+                  Boolean(pendingProfessionalUploadScene)))
+            }
             onApprove={approveAndContinue}
             onRegenerate={regenerateCurrentStep}
           />
@@ -2128,6 +2266,25 @@ export function StoryGenerator() {
                       ) : null}
                     </strong>
                     <p>{character.appearance}</p>
+                    {isProfessionalMode && character.portraitPrompt ? (
+                      <div className="scene-field highlight">
+                        <div className="prompt-copy-row">
+                          <strong>Portrait prompt</strong>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(
+                                character.portraitPrompt ?? '',
+                              );
+                            }}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                        <p>{character.portraitPrompt}</p>
+                      </div>
+                    ) : null}
                     <p className="muted character-voice">Voice: {character.voice}</p>
                   </article>
                 ))}
@@ -2147,7 +2304,9 @@ export function StoryGenerator() {
               </div>
             ) : (
               <p className="muted">
-                Defining characters and generating reference portraits...
+                {isProfessionalMode
+                  ? 'Defining characters and portrait prompts for professional platforms...'
+                  : 'Defining characters and generating reference portraits...'}
               </p>
             )}
           </StepPanel>
@@ -2194,12 +2353,12 @@ export function StoryGenerator() {
         {promptedScenes.length > 0 || currentStep === 'prompts' ? (
           <StepPanel
             step={6}
-            title="Video prompts"
+            title={isProfessionalMode ? 'Professional prompts' : 'Video prompts'}
             expanded={expandedSteps[6]}
             onToggle={() => toggleStep(6)}
             summary={
               promptedScenes.length > 0
-                ? `${promptedScenes.length} prompt${promptedScenes.length === 1 ? '' : 's'} ready`
+                ? `${promptedScenes.length} prompt set${promptedScenes.length === 1 ? '' : 's'} ready`
                 : 'Waiting for prompts'
             }
             status={getStepStatus('prompts', effectiveReviewStep, generatingStep, approvedThroughIndex)}
@@ -2218,7 +2377,9 @@ export function StoryGenerator() {
               />
             ) : (
               <p className="muted">
-                Creating image and video prompts using your visual settings...
+                {isProfessionalMode
+                  ? 'Creating image and video prompts for Kling, Veo, Midjourney, and similar platforms...'
+                  : 'Creating image and video prompts using your visual settings...'}
               </p>
             )}
           </StepPanel>
@@ -2227,27 +2388,69 @@ export function StoryGenerator() {
         {imageScenes.length > 0 || currentStep === 'images' ? (
           <StepPanel
             step={7}
-            title="Generated images"
+            title={
+              isProfessionalMode
+                ? 'Character & scene images'
+                : 'Generated images'
+            }
             expanded={expandedSteps[7]}
             onToggle={() => toggleStep(7)}
             summary={
               imageScenes.length > 0
-                ? `${imageScenes.length} image${imageScenes.length === 1 ? '' : 's'} saved locally`
-                : 'Generating images'
+                ? `${imageScenes.length} of ${promptedScenes.length || imageScenes.length} scene image${imageScenes.length === 1 ? '' : 's'} ready`
+                : isProfessionalMode
+                  ? 'Upload from professional platforms'
+                  : 'Generating images'
             }
             status={getStepStatus('images', effectiveReviewStep, generatingStep, approvedThroughIndex)}
           >
+            {isProfessionalMode &&
+            effectiveReviewStep === 'images' &&
+            pendingProfessionalPortrait ? (
+              <ProfessionalCharacterUpload
+                character={pendingProfessionalPortrait}
+                uploading={regeneratingSceneIndex === -1}
+                onUpload={(file) =>
+                  void uploadProfessionalCharacterPortrait(
+                    pendingProfessionalPortrait.id,
+                    file,
+                  )
+                }
+              />
+            ) : null}
+            {isProfessionalMode &&
+            effectiveReviewStep === 'images' &&
+            pendingProfessionalImageScene ? (
+              <ProfessionalSceneImageUpload
+                scene={pendingProfessionalImageScene}
+                uploading={regeneratingSceneIndex === nextProfessionalImageIndex}
+                onUpload={(file) =>
+                  void uploadProfessionalSceneImage(
+                    nextProfessionalImageIndex,
+                    file,
+                  )
+                }
+              />
+            ) : null}
             {imageScenes.length > 0 ? (
               <SceneMediaGallery
                 scenes={imageScenes}
                 mode="images"
                 onRegenerate={
-                  effectiveReviewStep === 'images'
+                  effectiveReviewStep === 'images' && !isProfessionalMode
                     ? regenerateSceneImage
-                    : undefined
+                    : isProfessionalMode && effectiveReviewStep === 'images'
+                      ? regenerateSceneImage
+                      : undefined
                 }
                 regeneratingSceneIndex={regeneratingSceneIndex}
               />
+            ) : isProfessionalMode ? (
+              <p className="muted">
+                After prompts are ready: create character portraits, then each
+                scene still on Kling / Midjourney / Veo image tools, and upload
+                them here before generating scene videos.
+              </p>
             ) : (
               <p className="muted">Generating scene images with FLUX.1-dev...</p>
             )}
@@ -2621,6 +2824,7 @@ function StepGateBar({
   regenerateLabel,
   approveLabel,
   hideRegenerate = false,
+  approveDisabled = false,
   onApprove,
   onRegenerate,
 }: {
@@ -2631,6 +2835,7 @@ function StepGateBar({
   regenerateLabel?: string;
   approveLabel?: string;
   hideRegenerate?: boolean;
+  approveDisabled?: boolean;
   onApprove: () => void;
   onRegenerate: () => void;
 }) {
@@ -2651,7 +2856,12 @@ function StepGateBar({
               {regenerateLabel ?? 'Regenerate'}
             </button>
           )}
-          <button type="button" className="primary-button" onClick={onApprove}>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={onApprove}
+            disabled={approveDisabled}
+          >
             {approveLabel ??
               (isLastStep ? 'Finish pipeline' : 'Approve & continue')}
           </button>
@@ -3144,6 +3354,120 @@ function SceneMediaGallery({
   );
 }
 
+function ProfessionalCharacterUpload({
+  character,
+  onUpload,
+  uploading,
+}: {
+  character: StoryCharacter;
+  onUpload: (file: File) => void;
+  uploading: boolean;
+}) {
+  return (
+    <div className="professional-upload panel">
+      <div className="professional-upload-header">
+        <strong>{character.name} portrait</strong>
+        <span className="muted">{character.role}</span>
+      </div>
+      {character.portraitPrompt ? (
+        <div className="scene-field highlight">
+          <div className="prompt-copy-row">
+            <strong>Portrait prompt</strong>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                void navigator.clipboard.writeText(character.portraitPrompt ?? '');
+              }}
+            >
+              Copy prompt
+            </button>
+          </div>
+          <p>{character.portraitPrompt}</p>
+          <p className="muted">
+            Generate this character on Midjourney, Kling Image, or a similar
+            platform, then upload the portrait below.
+          </p>
+        </div>
+      ) : (
+        <p className="muted">{character.appearance}</p>
+      )}
+      <label className="professional-upload-label">
+        <span>Upload character portrait (PNG, JPG, or WebP)</span>
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/*"
+          disabled={uploading}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              onUpload(file);
+              event.target.value = '';
+            }
+          }}
+        />
+      </label>
+      {uploading ? <p className="muted">Uploading portrait...</p> : null}
+    </div>
+  );
+}
+
+function ProfessionalSceneImageUpload({
+  scene,
+  onUpload,
+  uploading,
+}: {
+  scene: SceneScript;
+  onUpload: (file: File) => void;
+  uploading: boolean;
+}) {
+  return (
+    <div className="professional-upload panel">
+      <div className="professional-upload-header">
+        <strong>Scene {scene.sceneNumber} still</strong>
+        <span className="muted">{scene.duration}s keyframe</span>
+      </div>
+      {scene.imagePrompt ? (
+        <div className="scene-field highlight">
+          <div className="prompt-copy-row">
+            <strong>External image prompt</strong>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                void navigator.clipboard.writeText(scene.imagePrompt ?? '');
+              }}
+            >
+              Copy prompt
+            </button>
+          </div>
+          <p>{scene.imagePrompt}</p>
+          <p className="muted">
+            Generate this still on Midjourney, Kling Image, or Veo&apos;s image
+            tools, then upload it. You will use it next for image-to-video.
+          </p>
+        </div>
+      ) : null}
+      <label className="professional-upload-label">
+        <span>Upload scene image (PNG, JPG, or WebP)</span>
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/*"
+          disabled={uploading}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              onUpload(file);
+              event.target.value = '';
+            }
+          }}
+        />
+      </label>
+      {uploading ? <p className="muted">Uploading image...</p> : null}
+    </div>
+  );
+}
+
 function ProfessionalSceneUpload({
   scene,
   promptScene,
@@ -3158,7 +3482,7 @@ function ProfessionalSceneUpload({
   return (
     <div className="professional-upload panel">
       <div className="professional-upload-header">
-        <strong>Scene {scene.sceneNumber} upload</strong>
+        <strong>Scene {scene.sceneNumber} video</strong>
         <span className="muted">{scene.duration}s clip</span>
       </div>
       {scene.imagePath ? (
@@ -3322,9 +3646,37 @@ function SceneList({
             <strong>Visual</strong>
             <p>{scene.visualDescription}</p>
           </div>
+          {showPrompts && scene.imagePrompt ? (
+            <div className="scene-field highlight">
+              <div className="prompt-copy-row">
+                <strong>Image prompt</strong>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(scene.imagePrompt ?? '');
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
+              <p>{scene.imagePrompt}</p>
+            </div>
+          ) : null}
           {showPrompts && scene.videoPrompt ? (
             <div className="scene-field highlight">
-              <strong>Video prompt</strong>
+              <div className="prompt-copy-row">
+                <strong>Video prompt</strong>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(scene.videoPrompt ?? '');
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
               <p>{scene.videoPrompt}</p>
             </div>
           ) : null}

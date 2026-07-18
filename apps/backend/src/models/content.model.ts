@@ -27,6 +27,7 @@ export class GenerateScriptRequestDto {
   storyLanguage?: StoryLanguage;
   knowledgeSourceId?: string | null;
   sourceFidelityMode?: boolean;
+  videoMode?: VideoGenerationMode;
 }
 
 export class GenerateScriptResponseDto {
@@ -42,6 +43,7 @@ export class GenerateCharacterProfileRequestDto {
   visualStyle?: SeriesVisualStyle;
   knowledgeSourceId?: string | null;
   sourceFidelityMode?: boolean;
+  videoMode?: VideoGenerationMode;
 }
 
 export class GenerateCharacterProfileResponseDto {
@@ -65,6 +67,11 @@ export class GeneratePromptRequestDto {
 export class UploadVideoResponseDto {
   filename: string;
   videoPath: string;
+}
+
+export class UploadImageResponseDto {
+  filename: string;
+  imagePath: string;
 }
 
 export class GeneratePromptResponseDto {

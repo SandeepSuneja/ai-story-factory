@@ -9,6 +9,44 @@ export type SceneImageTemplate =
   | "reverence"
   | "quiet_meditation";
 
+/** Episode blocking setups from the Ramayana revision plan. */
+export type EpisodeSceneSetup =
+  | "two_shot_dialogue"
+  | "narada_hero"
+  | "valmiki_reaction"
+  | "wide_outro";
+
+export function classifyEpisodeSceneSetup(scene: SceneScript): EpisodeSceneSetup {
+  const visual = scene.visualDescription.toLowerCase();
+  const hasDialogue =
+    Array.isArray(scene.dialogue) && scene.dialogue.length > 0;
+
+  if (
+    !hasDialogue &&
+    /meditat|quiet|golden light fades|wide shot both/i.test(visual)
+  ) {
+    return "wide_outro";
+  }
+
+  if (/\bbow|bows deeply\b/i.test(visual)) {
+    return "valmiki_reaction";
+  }
+
+  if (
+    /\bmedium-close|rim light|luminous wise eyes|soft-focus left|narada medium/i.test(
+      visual,
+    )
+  ) {
+    return "narada_hero";
+  }
+
+  return "two_shot_dialogue";
+}
+
+export function buildUnifiedForestAnchor(): string {
+  return "single unified forest clearing at dawn, one continuous background, no split panel";
+}
+
 export function classifySceneImageTemplate(scene: SceneScript): SceneImageTemplate {
   const visual = scene.visualDescription.toLowerCase();
   const speakers = getSpeakingCharacters(scene);
@@ -100,41 +138,36 @@ export function buildContextualTalkingImageHint(scene: SceneScript): string {
   return `${speakers.join(" and ")} in conversation, natural speaking expressions.`;
 }
 
-/** Short composition phrase for Tier A scene prompts (~5–8 words). */
+/** Short composition phrase for Tier A scene prompts (~5–12 words). */
 export function buildCompactSceneCompositionHint(
   scene: SceneScript,
   sceneCharacters: StoryCharacter[],
 ): string {
-  const template = classifySceneImageTemplate(scene);
-  const speakers = getSpeakingCharacters(scene);
+  const setup = classifyEpisodeSceneSetup(scene);
   const names = sceneCharacters.map((character) => character.name);
+  const valmiki = names.find((name) => /valmiki/i.test(name)) ?? names[0];
+  const narada =
+    names.find((name) => /narada/i.test(name)) ??
+    names.find((name) => name !== valmiki) ??
+    names[1];
 
-  switch (template) {
-    case "quiet_meditation":
+  switch (setup) {
+    case "wide_outro":
       return names.length >= 2
-        ? `${names[0]} left, ${names[1]} right, distinct faces, quiet meditation`
-        : "Both seated meditation, forest clearing";
-    case "reverence":
+        ? `wide shot, ${valmiki} and ${narada} seated under banyan, light fading`
+        : "wide meditation outro, forest clearing";
+    case "valmiki_reaction":
       return names.length >= 2
-        ? `${names[0]} bowing left, ${names[1]} standing right, distinct faces`
-        : "Reverence bow, sacred banyan tree";
-    case "meditation_dialogue": {
-      if (names.length >= 2) {
-        // Prefer visual order: first listed character seated/left, second standing/right.
-        return `${names[0]} seated left under banyan, ${names[1]} standing right radiant, two distinct sages`;
-      }
-      const listener =
-        names.find((name) => !speakers.includes(name)) ?? "companion";
-      return `Seated sage dialogue, ${listener} listens`;
-    }
-    case "listener_focus":
+        ? `${valmiki} bowing left foreground, ${narada} upper right, unified forest`
+        : "reverence bow, sacred banyan tree";
+    case "narada_hero":
       return names.length >= 2
-        ? `${names[0]} left, ${names[1]} right, speaker and listener, distinct faces`
-        : "Two-shot, speaker and listener visible";
-    case "dialogue_two_shot":
+        ? `${narada} medium-close right, ${valmiki} soft-focus left under banyan`
+        : "celestial sage hero shot, forest background";
+    case "two_shot_dialogue":
     default:
       return names.length >= 2
-        ? `${names[0]} left, ${names[1]} right, two distinct people, different faces`
-        : "Cinematic forest clearing, two-shot";
+        ? `${valmiki} seated left on stone, ${narada} standing right with staff`
+        : "two-shot dialogue, forest clearing";
   }
 }

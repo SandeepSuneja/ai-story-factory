@@ -32,6 +32,8 @@ export interface StoryCharacter {
   appearance: string;
   voice: string;
   referenceImagePath?: string;
+  /** Prompt for external image tools when using professional mode */
+  portraitPrompt?: string;
   /** Locked visual tag from approved portrait — source of truth for scene prompts */
   visualIdentityTag?: string;
   /** SDXL LoRA trained from approved portrait (Tier C) */
@@ -84,6 +86,7 @@ export interface GenerateScriptRequest {
   storyLanguage?: StoryLanguage;
   knowledgeSourceId?: string | null;
   sourceFidelityMode?: boolean;
+  videoMode?: VideoGenerationMode;
 }
 
 export interface GenerateScriptResponse {
@@ -98,6 +101,7 @@ export interface GenerateCharacterProfileRequest {
   visualStyle?: SeriesVisualStyle;
   knowledgeSourceId?: string | null;
   sourceFidelityMode?: boolean;
+  videoMode?: VideoGenerationMode;
 }
 
 export interface GenerateCharacterProfileResponse {
@@ -121,6 +125,11 @@ export interface GeneratePromptRequest {
 export interface UploadVideoResponse {
   filename: string;
   videoPath: string;
+}
+
+export interface UploadImageResponse {
+  filename: string;
+  imagePath: string;
 }
 
 export interface GeneratePromptResponse {

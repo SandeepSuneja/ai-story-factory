@@ -33,8 +33,8 @@ export function shouldTrainCharacterLoras(): boolean {
   if (raw === "false" || raw === "0" || raw === "no") {
     return false;
   }
-  // hybrid + sdxl train; pure flux does not
-  return resolveSceneGenerationMode() !== "flux";
+  // Off by default until curated multi-image bible sets exist per character.
+  return false;
 }
 
 /** Cast sheets feed FLUX IP-Adapter / scene identity (not used for pure SDXL scenes). */
