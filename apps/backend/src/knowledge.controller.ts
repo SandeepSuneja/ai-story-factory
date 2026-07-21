@@ -10,6 +10,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { extname } from 'path';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import {
@@ -30,6 +31,15 @@ import { RetrievalService } from './services/retrieval.service';
 interface UploadedKnowledgeFile {
   buffer: Buffer;
   originalname: string;
+}
+
+const KNOWLEDGE_UPLOAD_EXTENSIONS = new Set(['.txt', '.md']);
+
+function assertKnowledgeUploadFilename(filename: string): void {
+  const extension = extname(filename).toLowerCase();
+  if (!KNOWLEDGE_UPLOAD_EXTENSIONS.has(extension)) {
+    throw new BadRequestException('Only .txt and .md UTF-8 files are supported.');
+  }
 }
 
 @Controller('knowledge')
@@ -96,9 +106,11 @@ export class KnowledgeController {
     if (!file?.buffer?.length) {
       throw new BadRequestException('file is required');
     }
+    const filename = file.originalname || 'upload.txt';
+    assertKnowledgeUploadFilename(filename);
     return this.knowledgeService.uploadDocument(
       id,
-      file.originalname || 'upload.txt',
+      filename,
       file.buffer,
       title,
     );

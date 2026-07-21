@@ -74,6 +74,7 @@ export function mergeProjectState(partial?: Partial<ProjectState>): ProjectState
   return {
     ...defaults,
     ...partial,
+    storyLanguage: 'en',
     videoGenerationMode: partial.videoGenerationMode ?? defaults.videoGenerationMode,
     seriesId: partial.seriesId ?? defaults.seriesId,
     sourceProjectId: partial.sourceProjectId ?? defaults.sourceProjectId,
@@ -166,7 +167,7 @@ export function getStepLabel(step: PipelineStep): string {
     case 'audio':
       return 'Audio';
     case 'assembly':
-      return 'Assembly';
+      return 'Final video';
     case 'complete':
       return 'Complete';
     default:

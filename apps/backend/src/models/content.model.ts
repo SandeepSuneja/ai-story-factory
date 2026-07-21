@@ -74,6 +74,11 @@ export class UploadImageResponseDto {
   imagePath: string;
 }
 
+export class UploadFinalVideoResponseDto {
+  filename: string;
+  finalVideoPath: string;
+}
+
 export class GeneratePromptResponseDto {
   scene: SceneScript;
 }

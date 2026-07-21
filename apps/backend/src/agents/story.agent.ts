@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import type { StoryLanguage } from "../content-state";
-import { contentLanguageRule, dialogueLanguageRule } from "../language";
+import { contentLanguageRule } from "../language";
 import {
   appendSourceMaterial,
   storyRequirementsWithSource,
@@ -8,24 +8,21 @@ import {
 } from "../source-fidelity";
 import { QwenService } from "../services/qwen.service";
 
+const STORY_MAX_TOKENS = 16384;
+
 @Injectable()
 export class StoryAgent {
   constructor(private readonly ai: QwenService) {}
 
   async execute(
     idea: string,
-    language: StoryLanguage = "en",
+    _language: StoryLanguage = "en",
     sourceContext?: SourceFidelityContext,
   ) {
-    const languageRules =
-      language === "hi"
-        ? `${contentLanguageRule()}\n${dialogueLanguageRule(language)}\n- When characters speak in the story, write their quoted dialogue in Hindi (Devanagari); keep all narrative prose in English.`
-        : contentLanguageRule();
-
     const requirements = sourceContext
       ? storyRequirementsWithSource()
       : `Requirements:
-- 400 words
+- No word limit — tell the full story with complete coverage
 - strong hook
 - emotional tension
 - twist ending
@@ -36,12 +33,12 @@ export class StoryAgent {
     const prompt = appendSourceMaterial(
       `Write a highly engaging story with named characters who talk to each other.
 ${requirements}
-${languageRules}
+${contentLanguageRule()}
 Idea:${idea}
 `,
       sourceContext,
     );
 
-    return this.ai.generate(prompt);
+    return this.ai.generate(prompt, { maxTokens: STORY_MAX_TOKENS });
   }
 }

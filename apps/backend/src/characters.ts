@@ -14,13 +14,6 @@ const EN_EDGE_VOICES = [
   "en-US-DavisNeural",
 ] as const;
 
-const HI_EDGE_VOICES = [
-  "hi-IN-SwaraNeural",
-  "hi-IN-MadhurNeural",
-  "hi-IN-AnanyaNeural",
-  "hi-IN-AaravNeural",
-] as const;
-
 const KOKORO_VOICES = ["af_heart", "am_adam", "af_bella", "am_michael"] as const;
 
 export function slugifyCharacterId(name: string): string {
@@ -33,14 +26,10 @@ export function slugifyCharacterId(name: string): string {
 }
 
 export function defaultVoiceForCharacter(
-  language: StoryLanguage,
+  _language: StoryLanguage,
   index: number,
   backend: "edge" | "kokoro" = "edge",
 ): string {
-  if (language === "hi") {
-    return HI_EDGE_VOICES[index % HI_EDGE_VOICES.length];
-  }
-
   if (backend === "kokoro") {
     return KOKORO_VOICES[index % KOKORO_VOICES.length];
   }

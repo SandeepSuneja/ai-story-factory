@@ -89,6 +89,29 @@ export class MediaUploadService implements OnModuleInit {
     };
   }
 
+  async saveFinalVideo(
+    file: UploadedVideoFile,
+  ): Promise<{ filename: string; finalVideoPath: string }> {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException("Video file is required.");
+    }
+
+    if (!file.mimetype.startsWith("video/")) {
+      throw new BadRequestException("Uploaded file must be a video.");
+    }
+
+    const extension = this.resolveVideoExtension(file.originalname, file.mimetype);
+    const filename = `final-${randomUUID()}${extension}`;
+    const outputPath = join(this.getVideoStorageDirectory(), filename);
+
+    await writeFile(outputPath, file.buffer);
+
+    return {
+      filename,
+      finalVideoPath: `/videos/${filename}`,
+    };
+  }
+
   async saveCharacterImage(
     characterId: string,
     file: UploadedImageFile,

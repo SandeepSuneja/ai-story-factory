@@ -1,20 +1,15 @@
-import type { StoryLanguage, VideoGenerationMode } from './content-state';
+import type { StoryLanguage } from './content-state';
 
-export function normalizeStoryLanguage(value?: string): StoryLanguage {
-  return value === 'hi' ? 'hi' : 'en';
+export function normalizeStoryLanguage(_value?: string): StoryLanguage {
+  return 'en';
 }
 
 /** Idea, story, narration, visual descriptions, character profiles, prompts metadata. */
 export function contentLanguageRule(): string {
-  return 'Write all narrative content in English: idea, story prose, scene narration, visualDescription, character names, roles, and appearance fields.';
+  return 'Write all content in English: idea, story prose, scene narration, dialogue, visualDescription, character names, roles, and appearance fields.';
 }
 
-/** Spoken lines only — the one place Hindi is allowed when storyLanguage is hi. */
-export function dialogueLanguageRule(language: StoryLanguage): string {
-  if (language === 'hi') {
-    return 'Write ONLY dialogue.text (character spoken lines) in Hindi using Devanagari script (हिन्दी). Keep narration and visualDescription in English.';
-  }
-
+export function dialogueLanguageRule(_language: StoryLanguage): string {
   return 'Write dialogue.text in English.';
 }
 
@@ -24,7 +19,7 @@ export function imagePromptLanguageRule(_language: StoryLanguage): string {
 
 export function videoPromptLanguageRule(
   _language: StoryLanguage,
-  _videoMode: VideoGenerationMode,
+  _videoMode: import('./content-state').VideoGenerationMode,
 ): string {
   return 'Write videoPrompt in English.';
 }

@@ -21,7 +21,7 @@ const SCRIPT_MAX_TOKENS_LOCAL = 4096;
 const SCRIPT_MAX_TOKENS_PRO = 8192;
 const MAX_SCENES_LOCAL = 8;
 const MAX_SCENE_DURATION_LOCAL = 6;
-const MAX_SCENE_DURATION_PRO = 10;
+const MAX_SCENE_DURATION_PRO = 15;
 
 function stripModelWrappers(text: string): string {
   let cleaned = text.trim();
@@ -215,10 +215,7 @@ function buildScriptPrompt(
 ): string {
   const contentRule = contentLanguageRule();
   const dialogueRule = dialogueLanguageRule(language);
-  const dialogueField =
-    language === "hi"
-      ? "spoken line in Hindi (Devanagari)"
-      : "spoken line in English";
+  const dialogueField = "spoken line in English";
   const visualField =
     "what appears on screen in English, naming every visible character";
   const isPro = videoMode === "professional";
@@ -230,12 +227,12 @@ Rules:
 - Return ONLY valid JSON.
 - There is NO maximum scene count. Use as many scenes as needed to cover the full story.
 - Cover every major story beat: setup, rising action, key turns, climax, and resolution. Do not skip plot points.
-- Prefer more shorter scenes over omitting story content.
+- Preserve story order — scenes must follow the narrative sequence from beginning to end.
 - Each scene duration must be 3 to ${MAX_SCENE_DURATION_PRO} seconds.
 - Include every named character from the story; there is no upper limit on cast size
 - Each scene must name every visible character in visualDescription
 - Each scene must include dialogue for the characters who speak in that scene
-- Keep each dialogue line under 16 words.
+- Keep each dialogue line up to 35 words — use fuller lines rather than one-sentence summaries.
 - Keep each visualDescription under 24 words.
 - Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
 - Do not truncate the JSON. Always close every string and end with ].`
@@ -244,12 +241,13 @@ Rules:
 - Return ONLY valid JSON.
 - There is NO maximum scene count. Break the story into as many scenes as needed for complete coverage.
 - Cover every important moment of the story from beginning to end — do not compress or omit plot points to stay short.
-- Prefer completeness over brevity; a long scene list is better than a incomplete story.
+- Preserve story order — scenes must follow the narrative sequence from beginning to end.
+- Prefer completeness over brevity; a long scene list is better than an incomplete story.
 - Each scene duration must be 3 to ${MAX_SCENE_DURATION_PRO} seconds.
 - Include every named character from the story; there is no upper limit on cast size
 - Each scene must name every visible character in visualDescription
 - Each scene must include dialogue for the characters who speak in that scene
-- Keep each dialogue line under 20 words.
+- Keep each dialogue line up to 35 words — use fuller lines rather than one-sentence summaries.
 - Keep each visualDescription under 28 words.
 - Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
 - Escape double quotes inside strings.
@@ -263,7 +261,7 @@ Rules:
 - Include every named character from the story; there is no upper limit on cast size
 - Each scene must name every visible character in visualDescription
 - Each scene must include dialogue for the characters who speak in that scene
-- Keep each dialogue line under 12 words.
+- Keep each dialogue line up to 35 words.
 - Keep each visualDescription under 16 words.
 - Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
 - Do not truncate the JSON. Always close every string and end with ].`
@@ -275,7 +273,7 @@ Rules:
 - Include every named character from the story; there is no upper limit on cast size
 - Each scene must name every visible character in visualDescription
 - Each scene must include dialogue for the characters who speak in that scene
-- Keep each dialogue line under 16 words.
+- Keep each dialogue line up to 35 words.
 - Keep each visualDescription under 20 words.
 - Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
 - Escape double quotes inside strings.
@@ -290,8 +288,7 @@ Rules:
     `Convert the story into short video scenes with character dialogue.${rules}${sourceRules}${pipelineNote}
 ${contentRule}
 ${dialogueRule}
-- narration and visualDescription must be in English.
-- dialogue.text must follow the dialogue language rule above.
+- narration, visualDescription, and dialogue.text must be in English.
 - Use the same speaker names consistently across all scenes.
 
 Use this exact shape:

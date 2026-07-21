@@ -1,4 +1,4 @@
-export type StoryLanguage = 'en' | 'hi';
+export type StoryLanguage = 'en';
 
 export type VideoGenerationMode = 'local' | 'professional';
 

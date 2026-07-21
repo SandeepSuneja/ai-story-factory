@@ -1,6 +1,6 @@
 import type { SeriesVisualStyle } from './series';
 
-export type StoryLanguage = 'en' | 'hi';
+export type StoryLanguage = 'en';
 
 export type VideoGenerationMode = 'local' | 'professional';
 
@@ -130,6 +130,11 @@ export interface UploadVideoResponse {
 export interface UploadImageResponse {
   filename: string;
   imagePath: string;
+}
+
+export interface UploadFinalVideoResponse {
+  filename: string;
+  finalVideoPath: string;
 }
 
 export interface GeneratePromptResponse {

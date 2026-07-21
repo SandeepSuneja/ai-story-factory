@@ -31,6 +31,7 @@ import {
   GenerateVideoRequestDto,
   StartVideoJobResponseDto,
   UploadImageResponseDto,
+  UploadFinalVideoResponseDto,
   UploadVideoResponseDto,
   VideoJobStatusResponseDto,
   UpscaleVideoRequestDto,
@@ -227,6 +228,19 @@ export class AppController {
     }
 
     return this.mediaUploadService.saveCharacterImage(characterId, file);
+  }
+
+  @Post('upload/final-video')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 1024 * 1024 * 1024 },
+    }),
+  )
+  uploadFinalVideo(
+    @UploadedFile() file: UploadedVideoFile,
+  ): Promise<UploadFinalVideoResponseDto> {
+    return this.mediaUploadService.saveFinalVideo(file);
   }
 
   @Post('generate/upscale')

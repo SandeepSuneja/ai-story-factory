@@ -42,6 +42,37 @@ export class RetrievalService {
         documentTitle: hit.documentTitle,
         metadata: hit.metadata,
       })),
+      sequential: false,
+    };
+  }
+
+  async buildSequentialContext(
+    knowledgeSourceId: string | null | undefined,
+    query: string,
+  ): Promise<SourceFidelityContext | undefined> {
+    if (!knowledgeSourceId?.trim()) {
+      return undefined;
+    }
+
+    const source = await this.knowledgeService.getSource(knowledgeSourceId);
+    const hits = await this.ragService.listSequentialChunks(source.collectionId);
+
+    if (hits.length === 0) {
+      return undefined;
+    }
+
+    return {
+      sourceId: source.id,
+      sourceName: source.name,
+      query: query.trim(),
+      chunks: hits.map((hit) => ({
+        id: hit.id,
+        text: hit.text,
+        score: hit.score,
+        documentTitle: hit.documentTitle,
+        metadata: hit.metadata,
+      })),
+      sequential: true,
     };
   }
 

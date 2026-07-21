@@ -128,9 +128,17 @@ export class AppService {
     query: string,
     knowledgeSourceId?: string | null,
     sourceFidelityMode?: boolean,
+    sequential = false,
   ): Promise<SourceFidelityContext | undefined> {
     if (!this.shouldUseSourceFidelity(sourceFidelityMode, knowledgeSourceId)) {
       return undefined;
+    }
+
+    if (sequential) {
+      return this.retrievalService.buildSequentialContext(
+        knowledgeSourceId,
+        query,
+      );
     }
 
     return this.retrievalService.buildContext(
@@ -188,6 +196,7 @@ export class AppService {
       idea,
       knowledgeSourceId,
       sourceFidelityMode,
+      true,
     );
 
     return {
@@ -218,6 +227,7 @@ export class AppService {
       story,
       knowledgeSourceId,
       sourceFidelityMode,
+      true,
     );
 
     return {

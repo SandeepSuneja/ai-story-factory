@@ -80,6 +80,17 @@ class SearchResponse(BaseModel):
     hits: list[SearchHit]
 
 
+class SequentialChunk(BaseModel):
+    id: str
+    text: str
+    metadata: dict[str, Any]
+
+
+class SequentialChunksResponse(BaseModel):
+    collection_id: str
+    chunks: list[SequentialChunk]
+
+
 def normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
@@ -297,7 +308,7 @@ async def upload_document(
     except UnicodeDecodeError as error:
         raise HTTPException(
             status_code=400,
-            detail="Only UTF-8 text files are supported",
+            detail="Only UTF-8 .txt and .md files are supported",
         ) from error
 
     document_title = title or (file.filename or "Uploaded document").strip()
@@ -313,6 +324,59 @@ async def upload_document(
             ]
         ),
     )
+
+
+def sort_chunks_by_source_order(
+    ids: list[str],
+    documents: list[str],
+    metadatas: list[dict[str, Any]],
+) -> list[SequentialChunk]:
+    rows: list[tuple[str, str, int, str, dict[str, Any]]] = []
+    for index, chunk_id in enumerate(ids):
+        metadata = metadatas[index] if index < len(metadatas) else {}
+        document_id = str(metadata.get("document_id") or "")
+        chunk_index = int(metadata.get("chunk_index") or 0)
+        text = documents[index] if index < len(documents) else ""
+        rows.append((document_id, chunk_id, chunk_index, text, metadata))
+
+    rows.sort(key=lambda item: (item[0], item[2], item[1]))
+    return [
+        SequentialChunk(id=chunk_id, text=text, metadata=metadata)
+        for _, chunk_id, _, text, metadata in rows
+    ]
+
+
+@app.get(
+    "/collections/{collection_id}/chunks/sequential",
+    response_model=SequentialChunksResponse,
+)
+def list_sequential_chunks(
+    collection_id: str,
+    document_id: str | None = None,
+) -> SequentialChunksResponse:
+    collection = get_collection(collection_id)
+    result = collection.get(include=["documents", "metadatas"])
+    ids = result.get("ids") or []
+    documents = result.get("documents") or []
+    metadatas = result.get("metadatas") or []
+
+    if document_id:
+        filtered_ids: list[str] = []
+        filtered_documents: list[str] = []
+        filtered_metadatas: list[dict[str, Any]] = []
+        for index, chunk_id in enumerate(ids):
+            metadata = metadatas[index] if index < len(metadatas) else {}
+            if str(metadata.get("document_id") or "") != document_id:
+                continue
+            filtered_ids.append(chunk_id)
+            filtered_documents.append(documents[index] if index < len(documents) else "")
+            filtered_metadatas.append(metadata)
+        ids = filtered_ids
+        documents = filtered_documents
+        metadatas = filtered_metadatas
+
+    chunks = sort_chunks_by_source_order(ids, documents, metadatas)
+    return SequentialChunksResponse(collection_id=collection_id, chunks=chunks)
 
 
 @app.post("/search", response_model=SearchResponse)

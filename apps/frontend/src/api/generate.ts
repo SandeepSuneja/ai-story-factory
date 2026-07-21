@@ -19,6 +19,7 @@ import type {
   GenerateScriptResponse,
   GenerateStoryRequest,
   GenerateStoryResponse,
+  UploadFinalVideoResponse,
   UploadImageResponse,
   UploadVideoResponse,
   StartVideoJobResponse,
@@ -151,6 +152,25 @@ export async function uploadSceneImage(
   }
 
   return response.json() as Promise<UploadImageResponse>;
+}
+
+export async function uploadFinalVideo(
+  file: File,
+): Promise<UploadFinalVideoResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE}/upload/final-video`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Upload failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<UploadFinalVideoResponse>;
 }
 
 export async function uploadCharacterImage(

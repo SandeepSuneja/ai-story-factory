@@ -1,8 +1,14 @@
-import type { PipelineStep, StoryCharacter } from '../types/content';
+import type { PipelineStep, StoryCharacter, VideoGenerationMode } from '../types/content';
 
 import type { ProjectState } from '../types/project';
 
 const IMAGES_STEP_ORDER_INDEX = 6;
+
+function isProfessionalMode(
+  state: Pick<ProjectState, 'videoGenerationMode'>,
+): boolean {
+  return state.videoGenerationMode === 'professional';
+}
 
 export function isImagesStepComplete(
   state: Pick<ProjectState, 'promptedScenes' | 'imageScenes'>,
@@ -17,9 +23,13 @@ export function isImagesStepComplete(
 export function shouldReviewScene1Gate(
   state: Pick<
     ProjectState,
-    'promptedScenes' | 'imageScenes' | 'scene1ImageApproved'
+    'promptedScenes' | 'imageScenes' | 'scene1ImageApproved' | 'videoGenerationMode'
   >,
 ): boolean {
+  if (isProfessionalMode(state)) {
+    return false;
+  }
+
   if (state.scene1ImageApproved) {
     return false;
   }
@@ -48,8 +58,13 @@ export function shouldReviewImagesStep(
     | 'currentStep'
     | 'failedStep'
     | 'scene1ImageApproved'
+    | 'videoGenerationMode'
   >,
 ): boolean {
+  if (isProfessionalMode(state)) {
+    return false;
+  }
+
   if (state.reviewStep) {
     return false;
   }
@@ -79,14 +94,36 @@ export function resolveEffectiveReviewStep(
     | 'currentStep'
     | 'failedStep'
     | 'scene1ImageApproved'
+    | 'videoGenerationMode'
+    | 'scriptScenes'
+    | 'finalVideoPath'
   >,
 ): PipelineStep | null {
   if (state.reviewStep) {
+    if (
+      isProfessionalMode(state) &&
+      state.reviewStep === 'assembly' &&
+      state.finalVideoPath?.trim()
+    ) {
+      return null;
+    }
+
     return state.reviewStep;
   }
 
   if (shouldReviewScene1Gate(state) || shouldReviewImagesStep(state)) {
     return 'images';
+  }
+
+  if (
+    isProfessionalMode(state) &&
+    state.promptedScenes.length > 0 &&
+    state.promptedScenes.length >= state.scriptScenes.length &&
+    state.scriptScenes.length > 0 &&
+    !state.finalVideoPath?.trim() &&
+    state.approvedThroughIndex >= 5
+  ) {
+    return 'assembly';
   }
 
   return null;
@@ -125,11 +162,39 @@ function countUpscaledScenes(scenes: ProjectState['videoScenes']): number {
   return scenes.filter((scene) => scene.upscaledVideoPath?.trim()).length;
 }
 
+export function normalizeFailedStep(
+  failedStep: PipelineStep | null,
+  videoGenerationMode: VideoGenerationMode,
+): PipelineStep | null {
+  if (!failedStep) {
+    return null;
+  }
+
+  if ((failedStep as string) === 'upscale') {
+    return 'videos';
+  }
+
+  if (videoGenerationMode === 'professional') {
+    if (
+      failedStep === 'images' ||
+      failedStep === 'videos' ||
+      failedStep === 'audio' ||
+      failedStep === 'assembly'
+    ) {
+      return null;
+    }
+  }
+
+  return failedStep;
+}
+
 export function inferInterruptedStep(state: ProjectState): PipelineStep | null {
-  if (state.failedStep) {
-    return state.failedStep === ('upscale' as string)
-      ? 'videos'
-      : state.failedStep;
+  const failedStep = normalizeFailedStep(
+    state.failedStep,
+    state.videoGenerationMode,
+  );
+  if (failedStep) {
+    return failedStep;
   }
 
   if (state.scriptScenes.length === 0) {
@@ -141,6 +206,18 @@ export function inferInterruptedStep(state: ProjectState): PipelineStep | null {
     state.promptedScenes.length < state.scriptScenes.length
   ) {
     return 'prompts';
+  }
+
+  if (isProfessionalMode(state)) {
+    if (
+      state.promptedScenes.length === state.scriptScenes.length &&
+      state.scriptScenes.length > 0 &&
+      !state.finalVideoPath?.trim()
+    ) {
+      return 'assembly';
+    }
+
+    return null;
   }
 
   if (
@@ -193,6 +270,7 @@ export function getResumeProgressLabel(
   step: PipelineStep,
   state: Pick<
     ProjectState,
+    | 'videoGenerationMode'
     | 'scriptScenes'
     | 'promptedScenes'
     | 'imageScenes'
@@ -201,6 +279,19 @@ export function getResumeProgressLabel(
     | 'finalVideoPath'
   >,
 ): string | null {
+  if (state.videoGenerationMode === 'professional') {
+    switch (step) {
+      case 'prompts':
+        return `${state.promptedScenes.length} of ${state.scriptScenes.length} scene prompts done`;
+      case 'assembly':
+        return state.finalVideoPath?.trim()
+          ? 'Final video uploaded'
+          : 'Upload your finished MP4';
+      default:
+        return null;
+    }
+  }
+
   switch (step) {
     case 'prompts':
       return `${state.promptedScenes.length} of ${state.scriptScenes.length} scene prompts done`;
