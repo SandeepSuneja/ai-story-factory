@@ -14,13 +14,6 @@ const EN_EDGE_VOICES = [
   "en-US-DavisNeural",
 ] as const;
 
-const HI_EDGE_VOICES = [
-  "hi-IN-SwaraNeural",
-  "hi-IN-MadhurNeural",
-  "hi-IN-AnanyaNeural",
-  "hi-IN-AaravNeural",
-] as const;
-
 const KOKORO_VOICES = ["af_heart", "am_adam", "af_bella", "am_michael"] as const;
 
 export function slugifyCharacterId(name: string): string {
@@ -33,14 +26,10 @@ export function slugifyCharacterId(name: string): string {
 }
 
 export function defaultVoiceForCharacter(
-  language: StoryLanguage,
+  _language: StoryLanguage,
   index: number,
   backend: "edge" | "kokoro" = "edge",
 ): string {
-  if (language === "hi") {
-    return HI_EDGE_VOICES[index % HI_EDGE_VOICES.length];
-  }
-
   if (backend === "kokoro") {
     return KOKORO_VOICES[index % KOKORO_VOICES.length];
   }
@@ -71,8 +60,22 @@ function normalizeCharacterRecord(
   }
 
   const referenceImagePath = String(value.referenceImagePath ?? "").trim() || undefined;
+  const portraitPrompt = String(value.portraitPrompt ?? "").trim() || undefined;
+  const visualIdentityTag =
+    String(value.visualIdentityTag ?? "").trim() || undefined;
+  const loraPath = String(value.loraPath ?? "").trim() || undefined;
 
-  return { id, name, role, appearance, voice, referenceImagePath };
+  return {
+    id,
+    name,
+    role,
+    appearance,
+    voice,
+    referenceImagePath,
+    portraitPrompt,
+    visualIdentityTag,
+    loraPath,
+  };
 }
 
 export function normalizeCharacters(
@@ -627,6 +630,18 @@ export function buildSceneCharacterIdentityTag(
   return buildSceneAppearanceTag(appearance, maxWords);
 }
 
+/** Scene prompts prefer the locked tag from the approved portrait. */
+export function buildSceneCharacterTagForPrompt(
+  character: StoryCharacter,
+  maxWords = 8,
+): string {
+  const locked = character.visualIdentityTag?.trim();
+  if (locked) {
+    return truncateToWordCount(locked, maxWords);
+  }
+  return buildSceneCharacterIdentityTag(character.appearance, maxWords);
+}
+
 export function buildSceneImageGuardrails(): string {
   return "no glasses, no spectacles, no eyeglasses, no modern accessories, ancient Indian Vedic forest";
 }
@@ -665,11 +680,14 @@ export function buildCharacterPortraitPrompt(
   character: StoryCharacter,
   animationSuffix: string,
 ): string {
-  const traits = buildSceneCharacterIdentityTag(character.appearance, 12);
+  const traits =
+    character.visualIdentityTag?.trim() ||
+    buildSceneCharacterIdentityTag(character.appearance, 12);
   return [
     `${character.name}, ${character.role}`,
     traits,
-    "character portrait, front facing, plain background",
+    "character portrait, 3/4 view, plain cream background",
+    "soft 2D Indian mythological illustration, same line weight as series character bible",
     animationSuffix,
   ]
     .filter(Boolean)
@@ -735,8 +753,10 @@ export function castSheetSeed(characterIds: string[]): number {
 
 export type SceneReferenceKind =
   | "cast_sheet"
+  | "face_sheet"
   | "portrait"
   | "portrait_extension"
+  | "master_scene"
   | "none";
 
 export function resolveSceneReferenceImages(
@@ -744,7 +764,7 @@ export function resolveSceneReferenceImages(
   characters: StoryCharacter[],
   castReferenceImagePath?: string,
 ): { paths: string[]; referenceKind: SceneReferenceKind } {
-  const mode = (process.env.FLUX_SCENE_REFERENCE_MODE ?? "speaker").trim();
+  const mode = (process.env.FLUX_SCENE_REFERENCE_MODE ?? "cast_sheet").trim();
   const sceneCharacters = getCharactersForScene(scene, characters);
 
   if (mode === "off") {
@@ -781,7 +801,7 @@ export function formatCharactersForPrompt(
   return characters
     .map(
       (character) =>
-        `${character.name} (${character.role}): ${buildSceneCharacterIdentityTag(character.appearance, 14)}`,
+        `${character.name} (${character.role}): ${buildSceneCharacterTagForPrompt(character, 14)}`,
     )
     .join("\n");
 }
@@ -790,7 +810,7 @@ export function buildCompactCharacterTags(characters: StoryCharacter[]): string 
   return characters
     .map(
       (character) =>
-        `${character.name}: ${buildSceneCharacterIdentityTag(character.appearance, 12)}`,
+        `${character.name}: ${buildSceneCharacterTagForPrompt(character, 12)}`,
     )
     .join("; ");
 }
@@ -854,10 +874,34 @@ export function mergeCharacterLibraries(
       byName.set(key, {
         ...character,
         referenceImagePath: previous.referenceImagePath,
+        portraitPrompt: character.portraitPrompt ?? previous.portraitPrompt,
+        visualIdentityTag:
+          character.visualIdentityTag ?? previous.visualIdentityTag,
+        loraPath: character.loraPath ?? previous.loraPath,
       });
       continue;
     }
-    byName.set(key, character);
+    if (previous?.visualIdentityTag && !character.visualIdentityTag) {
+      byName.set(key, {
+        ...character,
+        portraitPrompt: character.portraitPrompt ?? previous.portraitPrompt,
+        visualIdentityTag: previous.visualIdentityTag,
+        loraPath: character.loraPath ?? previous.loraPath,
+      });
+      continue;
+    }
+    if (previous?.loraPath && !character.loraPath) {
+      byName.set(key, {
+        ...character,
+        portraitPrompt: character.portraitPrompt ?? previous.portraitPrompt,
+        loraPath: previous.loraPath,
+      });
+      continue;
+    }
+    byName.set(key, {
+      ...character,
+      portraitPrompt: character.portraitPrompt ?? previous?.portraitPrompt,
+    });
   }
 
   return [...byName.values()];

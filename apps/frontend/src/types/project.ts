@@ -19,6 +19,8 @@ export interface ProjectState {
   /** @deprecated Legacy single-character field */
   characterAppearance?: string | null;
   castReferenceImagePath?: string | null;
+  scene1ImageApproved?: boolean;
+  masterSceneImagePath?: string | null;
   promptedScenes: SceneScript[];
   imageScenes: SceneScript[];
   videoScenes: SceneScript[];
@@ -72,6 +74,7 @@ export function mergeProjectState(partial?: Partial<ProjectState>): ProjectState
   return {
     ...defaults,
     ...partial,
+    storyLanguage: 'en',
     videoGenerationMode: partial.videoGenerationMode ?? defaults.videoGenerationMode,
     seriesId: partial.seriesId ?? defaults.seriesId,
     sourceProjectId: partial.sourceProjectId ?? defaults.sourceProjectId,
@@ -116,6 +119,8 @@ export function createEmptyProjectState(): ProjectState {
     scriptScenes: [],
     characters: [],
     castReferenceImagePath: null,
+    scene1ImageApproved: false,
+    masterSceneImagePath: null,
     promptedScenes: [],
     imageScenes: [],
     videoScenes: [],
@@ -162,7 +167,7 @@ export function getStepLabel(step: PipelineStep): string {
     case 'audio':
       return 'Audio';
     case 'assembly':
-      return 'Assembly';
+      return 'Final video';
     case 'complete':
       return 'Complete';
     default:

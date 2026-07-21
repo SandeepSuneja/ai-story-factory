@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { FluxService } from './services/flux.service';
+import { SdxlService } from './services/sdxl.service';
 import { HunyuanService } from './services/hunyuan.service';
 import { TtsService } from './services/tts.service';
 
@@ -61,6 +62,7 @@ async function listenWithRetry(
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const fluxService = app.get(FluxService);
+  const sdxlService = app.get(SdxlService);
   const hunyuanService = app.get(HunyuanService);
   const ttsService = app.get(TtsService);
 
@@ -76,6 +78,10 @@ async function bootstrap() {
 
   app.useStaticAssets(fluxService.getStorageDirectory(), {
     prefix: '/images/',
+  });
+
+  app.useStaticAssets(sdxlService.getLoraStorageDirectory(), {
+    prefix: '/loras/',
   });
 
   app.useStaticAssets(hunyuanService.getVideoStorageDirectory(), {

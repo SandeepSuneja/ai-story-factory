@@ -3,6 +3,7 @@ import { Agent, fetch } from "undici";
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_VIDEO_TIMEOUT_MS = 48 * 60 * 60 * 1000;
 const DEFAULT_FLUX_TIMEOUT_MS = 48 * 60 * 60 * 1000;
+const DEFAULT_SDXL_TIMEOUT_MS = 48 * 60 * 60 * 1000;
 
 function readTimeoutMs(name: string, fallback: number): number {
   const raw = process.env[name]?.trim();
@@ -97,5 +98,29 @@ export function fluxInferenceFetch(
   return fetch(url, {
     ...init,
     dispatcher: fluxInferenceAgent,
+  });
+}
+
+const sdxlInferenceAgent = createInferenceAgent({
+  headersTimeoutMs: readTimeoutMs(
+    "SDXL_HEADERS_TIMEOUT_MS",
+    readTimeoutMs(
+      "INFERENCE_HEADERS_TIMEOUT_MS",
+      DEFAULT_SDXL_TIMEOUT_MS,
+    ),
+  ),
+  bodyTimeoutMs: readTimeoutMs(
+    "SDXL_BODY_TIMEOUT_MS",
+    readTimeoutMs("INFERENCE_BODY_TIMEOUT_MS", DEFAULT_SDXL_TIMEOUT_MS),
+  ),
+});
+
+export function sdxlInferenceFetch(
+  url: string | URL,
+  init?: InferenceFetchInit,
+): ReturnType<typeof fetch> {
+  return fetch(url, {
+    ...init,
+    dispatcher: sdxlInferenceAgent,
   });
 }

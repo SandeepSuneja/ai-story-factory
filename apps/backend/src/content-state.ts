@@ -1,4 +1,4 @@
-export type StoryLanguage = 'en' | 'hi';
+export type StoryLanguage = 'en';
 
 export type VideoGenerationMode = 'local' | 'professional';
 
@@ -45,6 +45,12 @@ export interface StoryCharacter {
   voice: string;
   /** Canonical portrait used as a visual reference for scene image generation */
   referenceImagePath?: string;
+  /** Prompt for external image tools (Midjourney, Kling, etc.) when using professional mode */
+  portraitPrompt?: string;
+  /** Locked visual tag captured when the portrait was generated (source of truth for scenes) */
+  visualIdentityTag?: string;
+  /** SDXL LoRA trained from the approved portrait (Tier C) */
+  loraPath?: string;
 }
 
 export type SeriesOrientation = 'landscape' | 'portrait';

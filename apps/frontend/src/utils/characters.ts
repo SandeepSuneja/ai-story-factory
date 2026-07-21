@@ -1,7 +1,7 @@
 import type { SceneScript, StoryCharacter, StoryLanguage } from '../types/content';
 
 export function defaultVoiceForCharacter(
-  language: StoryLanguage,
+  _language: StoryLanguage,
   index: number,
 ): string {
   const enVoices = [
@@ -10,14 +10,7 @@ export function defaultVoiceForCharacter(
     'en-US-JennyNeural',
     'en-US-DavisNeural',
   ];
-  const hiVoices = [
-    'hi-IN-SwaraNeural',
-    'hi-IN-MadhurNeural',
-    'hi-IN-AnanyaNeural',
-    'hi-IN-AaravNeural',
-  ];
-  const pool = language === 'hi' ? hiVoices : enVoices;
-  return pool[index % pool.length];
+  return enVoices[index % enVoices.length];
 }
 
 export function migrateLegacyCharacterAppearance(
@@ -83,4 +76,8 @@ export function resolveProjectCharacters(
     state.characterAppearance,
     state.storyLanguage ?? 'en',
   );
+}
+
+export function normalizeStoryLanguage(_value?: string): StoryLanguage {
+  return 'en';
 }

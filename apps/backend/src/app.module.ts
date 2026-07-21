@@ -17,6 +17,7 @@ import { ProjectsController } from './projects.controller';
 import { SeriesService } from './services/series.service';
 import { SeriesController } from './series.controller';
 import { FluxService } from './services/flux.service';
+import { SdxlService } from './services/sdxl.service';
 import { HunyuanService } from './services/hunyuan.service';
 import { KnowledgeService } from './services/knowledge.service';
 import { MediaUploadService } from './services/media-upload.service';
@@ -31,6 +32,7 @@ import { VideoJobService } from './services/video-job.service';
 import { ImageJobService } from './services/image-job.service';
 import { CharacterPortraitService } from './services/character-portrait.service';
 import { CastSheetService } from './services/cast-sheet.service';
+import { CharacterLoraService } from './services/character-lora.service';
 
 @Module({
   imports: [],
@@ -49,6 +51,7 @@ import { CastSheetService } from './services/cast-sheet.service';
     RetrievalService,
     QwenService,
     FluxService,
+    SdxlService,
     HunyuanService,
     TtsService,
     UpscaleService,
@@ -66,6 +69,7 @@ import { CastSheetService } from './services/cast-sheet.service';
     ImageJobService,
     CharacterPortraitService,
     CastSheetService,
+    CharacterLoraService,
     UpscaleAgent,
     AssemblyAgent,
     AudioAgent,

@@ -64,11 +64,23 @@ export function addKnowledgeDocuments(
   });
 }
 
+const KNOWLEDGE_UPLOAD_EXTENSIONS = ['.txt', '.md'] as const;
+
+export function isSupportedKnowledgeUpload(filename: string): boolean {
+  const extension = filename.toLowerCase().match(/\.[a-z0-9]+$/)?.[0] ?? '';
+  return KNOWLEDGE_UPLOAD_EXTENSIONS.includes(
+    extension as (typeof KNOWLEDGE_UPLOAD_EXTENSIONS)[number],
+  );
+}
+
 export async function uploadKnowledgeDocument(
   id: string,
   file: File,
   title?: string,
 ): Promise<KnowledgeSourceRecord> {
+  if (!isSupportedKnowledgeUpload(file.name)) {
+    throw new Error('Only .txt and .md UTF-8 files are supported.');
+  }
   const formData = new FormData();
   formData.append('file', file);
   if (title?.trim()) {

@@ -8,7 +8,7 @@ import { IdeaAgent } from './agents/idea.agent';
 
 import { ImageAgent } from './agents/image.agent';
 
-import { PromptAgent } from './agents/prompt.agent';
+import { buildProfessionalPortraitPrompt, PromptAgent } from './agents/prompt.agent';
 
 import { ScriptAgent } from './agents/script.agent';
 
@@ -21,6 +21,11 @@ import { VideoJobService } from './services/video-job.service';
 import { ImageJobService } from './services/image-job.service';
 import { CharacterPortraitService } from './services/character-portrait.service';
 import { CastSheetService } from './services/cast-sheet.service';
+import { CharacterLoraService } from './services/character-lora.service';
+import {
+  shouldBuildCastSheet,
+  shouldTrainCharacterLoras,
+} from './scene-generation';
 
 import type { SceneScript, SeriesVisualStyle, StoryCharacter, StoryLanguage, VideoGenerationMode } from './content-state';
 import { mergeCharacterLibraries } from './characters';
@@ -90,6 +95,8 @@ export class AppService {
 
     private readonly castSheetService: CastSheetService,
 
+    private readonly characterLoraService: CharacterLoraService,
+
     private readonly upscaleAgent: UpscaleAgent,
 
     private readonly assemblyAgent: AssemblyAgent,
@@ -121,9 +128,17 @@ export class AppService {
     query: string,
     knowledgeSourceId?: string | null,
     sourceFidelityMode?: boolean,
+    sequential = false,
   ): Promise<SourceFidelityContext | undefined> {
     if (!this.shouldUseSourceFidelity(sourceFidelityMode, knowledgeSourceId)) {
       return undefined;
+    }
+
+    if (sequential) {
+      return this.retrievalService.buildSequentialContext(
+        knowledgeSourceId,
+        query,
+      );
     }
 
     return this.retrievalService.buildContext(
@@ -181,6 +196,7 @@ export class AppService {
       idea,
       knowledgeSourceId,
       sourceFidelityMode,
+      true,
     );
 
     return {
@@ -201,6 +217,8 @@ export class AppService {
 
     sourceFidelityMode?: boolean,
 
+    videoMode: VideoGenerationMode = 'local',
+
   ): Promise<GenerateScriptResponseDto> {
 
     const language = normalizeStoryLanguage(storyLanguage);
@@ -209,9 +227,17 @@ export class AppService {
       story,
       knowledgeSourceId,
       sourceFidelityMode,
+      true,
     );
 
-    return { script: await this.scriptAgent.execute(story, language, sourceContext) };
+    return {
+      script: await this.scriptAgent.execute(
+        story,
+        language,
+        sourceContext,
+        videoMode,
+      ),
+    };
 
   }
 
@@ -234,6 +260,8 @@ export class AppService {
     knowledgeSourceId?: string | null,
 
     sourceFidelityMode?: boolean,
+
+    videoMode: VideoGenerationMode = 'local',
 
   ): Promise<GenerateCharacterProfileResponseDto> {
 
@@ -263,15 +291,28 @@ export class AppService {
     let characters = result.characters;
     let castReferenceImagePath: string | undefined;
 
-    if (characters.length > 0) {
+    if (characters.length > 0 && videoMode === 'professional') {
+      characters = characters.map((character) => ({
+        ...character,
+        portraitPrompt:
+          character.portraitPrompt?.trim() ||
+          buildProfessionalPortraitPrompt(character, visualStyle),
+      }));
+    } else if (characters.length > 0) {
       characters = await this.characterPortraitService.ensurePortraits(
         characters,
         visualStyle,
       );
-      castReferenceImagePath = await this.castSheetService.ensureCastSheet(
-        characters,
-        visualStyle,
-      );
+      // Hybrid: train SDXL LoRAs for identity assets, then build FLUX cast sheet for scenes.
+      if (shouldTrainCharacterLoras()) {
+        characters = await this.characterLoraService.ensureLoras(characters);
+      }
+      if (shouldBuildCastSheet()) {
+        castReferenceImagePath = await this.castSheetService.ensureCastSheet(
+          characters,
+          visualStyle,
+        );
+      }
     }
 
     if (seriesId && result.newCharacters.length > 0) {
@@ -306,21 +347,22 @@ export class AppService {
 
     );
 
-    const castReferenceImagePath = await this.castSheetService.ensureCastSheet(
+    let withLoras = updated;
+    if (shouldTrainCharacterLoras()) {
+      withLoras = await this.characterLoraService.ensureLoras(updated);
+    }
 
-      updated,
-
-      visualStyle,
-
-    );
+    const castReferenceImagePath = shouldBuildCastSheet()
+      ? await this.castSheetService.ensureCastSheet(withLoras, visualStyle)
+      : undefined;
 
     if (seriesId) {
 
-      await this.seriesService.mergeCharacters(seriesId, updated);
+      await this.seriesService.mergeCharacters(seriesId, withLoras);
 
     }
 
-    return { characters: updated, castReferenceImagePath };
+    return { characters: withLoras, castReferenceImagePath };
 
   }
 
@@ -405,6 +447,8 @@ export class AppService {
     visualStyle?: SeriesVisualStyle,
     characters: StoryCharacter[] = [],
     castReferenceImagePath?: string,
+    masterSceneImagePath?: string,
+    regenerate = false,
   ): StartImageJobResponseDto {
 
     const job = this.imageJobService.start(
@@ -412,6 +456,8 @@ export class AppService {
       visualStyle,
       characters,
       castReferenceImagePath,
+      masterSceneImagePath,
+      regenerate,
     );
 
     return {

@@ -1,6 +1,6 @@
 import type { SeriesVisualStyle } from './series';
 
-export type StoryLanguage = 'en' | 'hi';
+export type StoryLanguage = 'en';
 
 export type VideoGenerationMode = 'local' | 'professional';
 
@@ -32,6 +32,12 @@ export interface StoryCharacter {
   appearance: string;
   voice: string;
   referenceImagePath?: string;
+  /** Prompt for external image tools when using professional mode */
+  portraitPrompt?: string;
+  /** Locked visual tag from approved portrait — source of truth for scene prompts */
+  visualIdentityTag?: string;
+  /** SDXL LoRA trained from approved portrait (Tier C) */
+  loraPath?: string;
 }
 
 export interface SceneScript {
@@ -80,6 +86,7 @@ export interface GenerateScriptRequest {
   storyLanguage?: StoryLanguage;
   knowledgeSourceId?: string | null;
   sourceFidelityMode?: boolean;
+  videoMode?: VideoGenerationMode;
 }
 
 export interface GenerateScriptResponse {
@@ -94,6 +101,7 @@ export interface GenerateCharacterProfileRequest {
   visualStyle?: SeriesVisualStyle;
   knowledgeSourceId?: string | null;
   sourceFidelityMode?: boolean;
+  videoMode?: VideoGenerationMode;
 }
 
 export interface GenerateCharacterProfileResponse {
@@ -119,6 +127,16 @@ export interface UploadVideoResponse {
   videoPath: string;
 }
 
+export interface UploadImageResponse {
+  filename: string;
+  imagePath: string;
+}
+
+export interface UploadFinalVideoResponse {
+  filename: string;
+  finalVideoPath: string;
+}
+
 export interface GeneratePromptResponse {
   scene: SceneScript;
 }
@@ -128,6 +146,9 @@ export interface GenerateImageRequest {
   visualStyle?: SeriesVisualStyle;
   characters?: StoryCharacter[];
   castReferenceImagePath?: string;
+  masterSceneImagePath?: string;
+  /** When true, use a fresh random seed so redo does not repeat the same image. */
+  regenerate?: boolean;
 }
 
 export interface EnsureCharacterPortraitsRequest {

@@ -27,6 +27,7 @@ export class GenerateScriptRequestDto {
   storyLanguage?: StoryLanguage;
   knowledgeSourceId?: string | null;
   sourceFidelityMode?: boolean;
+  videoMode?: VideoGenerationMode;
 }
 
 export class GenerateScriptResponseDto {
@@ -42,6 +43,7 @@ export class GenerateCharacterProfileRequestDto {
   visualStyle?: SeriesVisualStyle;
   knowledgeSourceId?: string | null;
   sourceFidelityMode?: boolean;
+  videoMode?: VideoGenerationMode;
 }
 
 export class GenerateCharacterProfileResponseDto {
@@ -67,6 +69,16 @@ export class UploadVideoResponseDto {
   videoPath: string;
 }
 
+export class UploadImageResponseDto {
+  filename: string;
+  imagePath: string;
+}
+
+export class UploadFinalVideoResponseDto {
+  filename: string;
+  finalVideoPath: string;
+}
+
 export class GeneratePromptResponseDto {
   scene: SceneScript;
 }
@@ -76,6 +88,9 @@ export class GenerateImageRequestDto {
   visualStyle?: SeriesVisualStyle;
   characters?: StoryCharacter[];
   castReferenceImagePath?: string;
+  masterSceneImagePath?: string;
+  /** Fresh random seed so regenerate does not repeat the prior image. */
+  regenerate?: boolean;
 }
 
 export class EnsureCharacterPortraitsRequestDto {

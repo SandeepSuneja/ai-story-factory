@@ -23,6 +23,17 @@ interface RagSearchResponse {
   hits: RagSearchHit[];
 }
 
+interface RagSequentialChunk {
+  id: string;
+  text: string;
+  metadata?: Record<string, unknown>;
+}
+
+interface RagSequentialChunksResponse {
+  collection_id: string;
+  chunks: RagSequentialChunk[];
+}
+
 @Injectable()
 export class RagService {
   private readonly serviceUrl =
@@ -121,6 +132,29 @@ export class RagService {
           ? hit.metadata.document_title
           : undefined,
       metadata: hit.metadata,
+    }));
+  }
+
+  async listSequentialChunks(
+    collectionId: string,
+    documentId?: string,
+  ): Promise<RetrievedChunkDto[]> {
+    const query = documentId
+      ? `?document_id=${encodeURIComponent(documentId)}`
+      : '';
+    const result = await this.getJson<RagSequentialChunksResponse>(
+      `/collections/${collectionId}/chunks/sequential${query}`,
+    );
+
+    return result.chunks.map((chunk) => ({
+      id: chunk.id,
+      text: chunk.text,
+      score: 1,
+      documentTitle:
+        typeof chunk.metadata?.document_title === 'string'
+          ? chunk.metadata.document_title
+          : undefined,
+      metadata: chunk.metadata,
     }));
   }
 

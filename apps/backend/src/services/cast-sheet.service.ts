@@ -4,6 +4,7 @@ import { join } from "path";
 import type { SeriesVisualStyle, StoryCharacter } from "../content-state";
 import { deterministicSeed } from "../characters";
 import { FluxService } from "./flux.service";
+import { getGenerationDimensions, mergeVisualStyle } from "../visual-style";
 
 interface CastSheetMeta {
   castHash: number;
@@ -160,7 +161,7 @@ export class CastSheetService {
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
-  private async ensureFullBodyReference(
+  async ensureFullBodyReference(
     character: StoryCharacter,
   ): Promise<string> {
     const portraitPath = character.referenceImagePath?.trim();
@@ -232,6 +233,65 @@ export class CastSheetService {
     });
 
     await this.writeCastMeta(hash);
+    return imagePath;
+  }
+
+  private faceSheetHash(
+    characters: StoryCharacter[],
+    canvasWidth: number,
+    canvasHeight: number,
+  ): number {
+    const signature = [
+      "face-sheet-portrait-lineup-v1",
+      String(canvasWidth),
+      String(canvasHeight),
+      ...this.sortedCharacters(characters).map(
+        (character) =>
+          `${character.id}:${character.referenceImagePath?.trim() ?? ""}:${character.visualIdentityTag?.trim() ?? ""}`,
+      ),
+    ].join("|");
+    return deterministicSeed(signature);
+  }
+
+  private faceSheetFilename(faceHash: number): string {
+    return `face-${faceHash.toString(16)}.png`;
+  }
+
+  async ensureFaceReferenceSheet(
+    characters: StoryCharacter[],
+    visualStyle?: SeriesVisualStyle,
+  ): Promise<string | undefined> {
+    if (characters.length < 2) {
+      return undefined;
+    }
+
+    const ordered = this.sortedCharacters(characters);
+    if (ordered.some((character) => !character.referenceImagePath?.trim())) {
+      return undefined;
+    }
+
+    const { width, height } = getGenerationDimensions(
+      mergeVisualStyle(visualStyle).orientation,
+    );
+    const hash = this.faceSheetHash(characters, width, height);
+    const filename = this.faceSheetFilename(hash);
+    const canonicalPath = `/images/${filename}`;
+
+    if (await this.fileExists(filename)) {
+      return canonicalPath;
+    }
+
+    const portraitPaths = ordered.map(
+      (character) => character.referenceImagePath!.trim(),
+    );
+
+    const imagePath = await this.flux.composeFaceReferenceSheet({
+      referenceImagePaths: portraitPaths,
+      filenamePrefix: `face-${hash.toString(16)}`,
+      canvasWidth: width,
+      canvasHeight: height,
+    });
+
     return imagePath;
   }
 }

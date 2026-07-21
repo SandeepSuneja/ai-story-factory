@@ -1,5 +1,10 @@
 import { Injectable } from "@nestjs/common";
-import type { DialogueLine, SceneScript, StoryLanguage } from "../content-state";
+import type {
+  DialogueLine,
+  SceneScript,
+  StoryLanguage,
+  VideoGenerationMode,
+} from "../content-state";
 import { inferDialogueFromNarration } from "../characters";
 import {
   contentLanguageRule,
@@ -12,9 +17,11 @@ import {
 } from "../source-fidelity";
 import { QwenService } from "../services/qwen.service";
 
-const SCRIPT_MAX_TOKENS = 4096;
-const MAX_SCENES = 8;
-const MAX_SCENE_DURATION_SECONDS = 6;
+const SCRIPT_MAX_TOKENS_LOCAL = 4096;
+const SCRIPT_MAX_TOKENS_PRO = 8192;
+const MAX_SCENES_LOCAL = 8;
+const MAX_SCENE_DURATION_LOCAL = 6;
+const MAX_SCENE_DURATION_PRO = 15;
 
 function stripModelWrappers(text: string): string {
   let cleaned = text.trim();
@@ -135,7 +142,10 @@ function buildNarrationFromDialogue(dialogue: DialogueLine[]): string {
   return dialogue.map((line) => `${line.speaker}: ${line.text}`).join("\n");
 }
 
-function normalizeScenes(raw: unknown): SceneScript[] {
+function normalizeScenes(
+  raw: unknown,
+  videoMode: VideoGenerationMode,
+): SceneScript[] {
   if (!Array.isArray(raw)) {
     throw new Error("Script model output is not a JSON array.");
   }
@@ -144,7 +154,14 @@ function normalizeScenes(raw: unknown): SceneScript[] {
     throw new Error("Script model output did not contain any scenes.");
   }
 
-  return raw.slice(0, MAX_SCENES).map((scene, index) => {
+  const maxDuration =
+    videoMode === "professional"
+      ? MAX_SCENE_DURATION_PRO
+      : MAX_SCENE_DURATION_LOCAL;
+  const scenes =
+    videoMode === "professional" ? raw : raw.slice(0, MAX_SCENES_LOCAL);
+
+  return scenes.map((scene, index) => {
     if (!scene || typeof scene !== "object") {
       throw new Error(`Scene ${index + 1} is invalid.`);
     }
@@ -163,7 +180,7 @@ function normalizeScenes(raw: unknown): SceneScript[] {
       narration: resolvedNarration,
       visualDescription: String(value.visualDescription ?? "").trim(),
       duration: Math.min(
-        MAX_SCENE_DURATION_SECONDS,
+        maxDuration,
         Math.max(1, Number(value.duration ?? 3)),
       ),
       dialogue,
@@ -171,15 +188,18 @@ function normalizeScenes(raw: unknown): SceneScript[] {
   });
 }
 
-function parseJsonFromModel(text: string): SceneScript[] {
+function parseJsonFromModel(
+  text: string,
+  videoMode: VideoGenerationMode,
+): SceneScript[] {
   const jsonText = extractJsonArray(text);
 
   try {
-    return normalizeScenes(JSON.parse(jsonText));
+    return normalizeScenes(JSON.parse(jsonText), videoMode);
   } catch {
     const salvaged = extractCompleteJsonObjects(jsonText);
     if (salvaged.length > 0) {
-      return normalizeScenes(salvaged);
+      return normalizeScenes(salvaged, videoMode);
     }
 
     throw new Error("Could not parse or salvage any scenes from model output.");
@@ -189,60 +209,93 @@ function parseJsonFromModel(text: string): SceneScript[] {
 function buildScriptPrompt(
   story: string,
   language: StoryLanguage,
+  videoMode: VideoGenerationMode,
   strict = false,
   sourceContext?: SourceFidelityContext,
 ): string {
   const contentRule = contentLanguageRule();
   const dialogueRule = dialogueLanguageRule(language);
-  const dialogueField =
-    language === "hi"
-      ? "spoken line in Hindi (Devanagari)"
-      : "spoken line in English";
+  const dialogueField = "spoken line in English";
   const visualField =
     "what appears on screen in English, naming every visible character";
+  const isPro = videoMode === "professional";
 
-  const rules = strict
-    ? `
+  const rules = isPro
+    ? strict
+      ? `
+Rules:
+- Return ONLY valid JSON.
+- There is NO maximum scene count. Use as many scenes as needed to cover the full story.
+- Cover every major story beat: setup, rising action, key turns, climax, and resolution. Do not skip plot points.
+- Preserve story order — scenes must follow the narrative sequence from beginning to end.
+- Each scene duration must be 3 to ${MAX_SCENE_DURATION_PRO} seconds.
+- Include every named character from the story; there is no upper limit on cast size
+- Each scene must name every visible character in visualDescription
+- Each scene must include dialogue for the characters who speak in that scene
+- Keep each dialogue line up to 35 words — use fuller lines rather than one-sentence summaries.
+- Keep each visualDescription under 24 words.
+- Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
+- Do not truncate the JSON. Always close every string and end with ].`
+      : `
+Rules:
+- Return ONLY valid JSON.
+- There is NO maximum scene count. Break the story into as many scenes as needed for complete coverage.
+- Cover every important moment of the story from beginning to end — do not compress or omit plot points to stay short.
+- Preserve story order — scenes must follow the narrative sequence from beginning to end.
+- Prefer completeness over brevity; a long scene list is better than an incomplete story.
+- Each scene duration must be 3 to ${MAX_SCENE_DURATION_PRO} seconds.
+- Include every named character from the story; there is no upper limit on cast size
+- Each scene must name every visible character in visualDescription
+- Each scene must include dialogue for the characters who speak in that scene
+- Keep each dialogue line up to 35 words — use fuller lines rather than one-sentence summaries.
+- Keep each visualDescription under 28 words.
+- Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
+- Escape double quotes inside strings.
+- Do not truncate the JSON. Always close every string and end with ].`
+    : strict
+      ? `
 Rules:
 - Return ONLY valid JSON.
 - Use exactly 4 to 6 scenes.
-- Each scene duration must be 3 to 6 seconds.
+- Each scene duration must be 3 to ${MAX_SCENE_DURATION_LOCAL} seconds.
 - Include every named character from the story; there is no upper limit on cast size
 - Each scene must name every visible character in visualDescription
 - Each scene must include dialogue for the characters who speak in that scene
-- Keep each dialogue line under 12 words.
+- Keep each dialogue line up to 35 words.
 - Keep each visualDescription under 16 words.
 - Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
 - Do not truncate the JSON. Always close every string and end with ].`
-    : `
+      : `
 Rules:
 - Return ONLY valid JSON.
-- Use 4 to ${MAX_SCENES} scenes.
-- Each scene duration must be 3 to ${MAX_SCENE_DURATION_SECONDS} seconds.
+- Use 4 to ${MAX_SCENES_LOCAL} scenes.
+- Each scene duration must be 3 to ${MAX_SCENE_DURATION_LOCAL} seconds.
 - Include every named character from the story; there is no upper limit on cast size
 - Each scene must name every visible character in visualDescription
 - Each scene must include dialogue for the characters who speak in that scene
-- Keep each dialogue line under 16 words.
+- Keep each dialogue line up to 35 words.
 - Keep each visualDescription under 20 words.
 - Each visualDescription must describe ONE static photographable frame with all visible characters named (no camera moves, morphing, on-screen text, or duplicate clones of the same character).
 - Escape double quotes inside strings.
 - Do not truncate the JSON. Always close every string and end with ].`;
 
   const sourceRules = sourceContext ? `\n${scriptRulesWithSource()}` : "";
+  const pipelineNote = isPro
+    ? "\nThese scenes will be produced with professional external tools (Kling AI, Google Veo, etc.). Completeness of story coverage matters more than keeping the video short."
+    : "";
 
   return appendSourceMaterial(
-    `Convert the story into short video scenes with character dialogue.${rules}${sourceRules}
+    `Convert the story into short video scenes with character dialogue.${rules}${sourceRules}${pipelineNote}
 ${contentRule}
 ${dialogueRule}
-- narration and visualDescription must be in English.
-- dialogue.text must follow the dialogue language rule above.
+- narration, visualDescription, and dialogue.text must be in English.
 - Use the same speaker names consistently across all scenes.
 
 Use this exact shape:
 [
   {
     "sceneNumber": 1,
-    "duration": 6,
+    "duration": ${isPro ? 8 : 6},
     "visualDescription": "${visualField}",
     "dialogue": [
       { "speaker": "Maya", "text": "${dialogueField}" },
@@ -266,10 +319,15 @@ export class ScriptAgent {
     story: string,
     language: StoryLanguage = "en",
     sourceContext?: SourceFidelityContext,
+    videoMode: VideoGenerationMode = "local",
   ): Promise<SceneScript[]> {
+    const maxTokens =
+      videoMode === "professional"
+        ? SCRIPT_MAX_TOKENS_PRO
+        : SCRIPT_MAX_TOKENS_LOCAL;
     const attempts = [
-      buildScriptPrompt(story, language, false, sourceContext),
-      `${buildScriptPrompt(story, language, true, sourceContext)}
+      buildScriptPrompt(story, language, videoMode, false, sourceContext),
+      `${buildScriptPrompt(story, language, videoMode, true, sourceContext)}
 
 Your previous answer was invalid or truncated JSON. Reply again with ONLY the JSON array.`,
     ];
@@ -279,9 +337,9 @@ Your previous answer was invalid or truncated JSON. Reply again with ONLY the JS
     for (const prompt of attempts) {
       try {
         const text = await this.ai.generate(prompt, {
-          maxTokens: SCRIPT_MAX_TOKENS,
+          maxTokens,
         });
-        return parseJsonFromModel(text);
+        return parseJsonFromModel(text, videoMode);
       } catch (error) {
         lastError =
           error instanceof Error

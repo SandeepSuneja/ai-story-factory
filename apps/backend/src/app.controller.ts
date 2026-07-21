@@ -30,6 +30,8 @@ import {
   GenerateStoryResponseDto,
   GenerateVideoRequestDto,
   StartVideoJobResponseDto,
+  UploadImageResponseDto,
+  UploadFinalVideoResponseDto,
   UploadVideoResponseDto,
   VideoJobStatusResponseDto,
   UpscaleVideoRequestDto,
@@ -39,7 +41,11 @@ import {
   AssembleVideoRequestDto,
   AssembleVideoResponseDto,
 } from './models/content.model';
-import { MediaUploadService, type UploadedVideoFile } from './services/media-upload.service';
+import {
+  MediaUploadService,
+  type UploadedImageFile,
+  type UploadedVideoFile,
+} from './services/media-upload.service';
 @Controller()
 export class AppController {
   constructor(
@@ -85,6 +91,7 @@ export class AppController {
       body.storyLanguage,
       body.knowledgeSourceId,
       body.sourceFidelityMode,
+      body.videoMode ?? 'local',
     );
   }
 
@@ -101,6 +108,7 @@ export class AppController {
       body.visualStyle,
       body.knowledgeSourceId,
       body.sourceFidelityMode,
+      body.videoMode ?? 'local',
     );
   }
 
@@ -139,6 +147,8 @@ export class AppController {
       body.visualStyle,
       body.characters ?? [],
       body.castReferenceImagePath,
+      body.masterSceneImagePath,
+      body.regenerate === true,
     );
   }
 
@@ -180,6 +190,57 @@ export class AppController {
     }
 
     return this.mediaUploadService.saveSceneVideo(sceneNumber, file);
+  }
+
+  @Post('upload/image')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 50 * 1024 * 1024 },
+    }),
+  )
+  uploadImage(
+    @UploadedFile() file: UploadedImageFile,
+    @Body('scene_number') sceneNumberRaw: string,
+  ): Promise<UploadImageResponseDto> {
+    const sceneNumber = Number.parseInt(sceneNumberRaw, 10);
+    if (!Number.isFinite(sceneNumber) || sceneNumber < 1) {
+      throw new BadRequestException('scene_number must be a positive integer');
+    }
+
+    return this.mediaUploadService.saveSceneImage(sceneNumber, file);
+  }
+
+  @Post('upload/character-image')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 50 * 1024 * 1024 },
+    }),
+  )
+  uploadCharacterImage(
+    @UploadedFile() file: UploadedImageFile,
+    @Body('character_id') characterIdRaw: string,
+  ): Promise<UploadImageResponseDto> {
+    const characterId = String(characterIdRaw ?? '').trim();
+    if (!characterId) {
+      throw new BadRequestException('character_id is required');
+    }
+
+    return this.mediaUploadService.saveCharacterImage(characterId, file);
+  }
+
+  @Post('upload/final-video')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 1024 * 1024 * 1024 },
+    }),
+  )
+  uploadFinalVideo(
+    @UploadedFile() file: UploadedVideoFile,
+  ): Promise<UploadFinalVideoResponseDto> {
+    return this.mediaUploadService.saveFinalVideo(file);
   }
 
   @Post('generate/upscale')

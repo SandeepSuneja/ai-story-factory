@@ -27,6 +27,10 @@ export interface ProjectState {
   characterAppearance?: string | null;
   /** Full-body cast lineup used as scene generation reference */
   castReferenceImagePath?: string | null;
+  /** Scene 1 image approved — unlocks generation of remaining scene images */
+  scene1ImageApproved?: boolean;
+  /** Approved scene 1 still used as continuity anchor (Tier B) */
+  masterSceneImagePath?: string | null;
   promptedScenes: SceneScript[];
   imageScenes: SceneScript[];
   videoScenes: SceneScript[];
@@ -84,6 +88,8 @@ export function createEmptyProjectState(): ProjectState {
     scriptScenes: [],
     characters: [],
     castReferenceImagePath: null,
+    scene1ImageApproved: false,
+    masterSceneImagePath: null,
     promptedScenes: [],
     imageScenes: [],
     videoScenes: [],

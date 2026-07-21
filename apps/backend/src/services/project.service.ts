@@ -54,6 +54,7 @@ export class ProjectService implements OnModuleInit {
     return {
       ...defaults,
       ...partial,
+      storyLanguage: 'en',
       scriptScenes: partial.scriptScenes ?? defaults.scriptScenes,
       characters: partial.characters ?? defaults.characters,
       seriesId: partial.seriesId ?? defaults.seriesId,
